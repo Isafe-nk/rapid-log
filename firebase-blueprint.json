@@ -1,0 +1,27 @@
+{
+  "entities": {
+    "todo": {
+      "title": "Todo",
+      "description": "A single journal entry (task, event, or note)",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "Contents of the log" },
+        "completed": { "type": "boolean", "description": "Completion status" },
+        "type": { "type": "string", "enum": ["task", "event", "note"] },
+        "timeOfDay": { "type": "string", "enum": ["morning", "noon", "night"] },
+        "time": { "type": "string", "description": "Start time string" },
+        "endTime": { "type": "string", "description": "End time string" },
+        "priority": { "type": "boolean", "description": "Priority star status" },
+        "userId": { "type": "string", "description": "Owner UID" },
+        "createdAt": { "type": "number", "description": "Timestamp" }
+      },
+      "required": ["text", "completed", "type", "timeOfDay", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "todos/{todoId}": {
+      "schema": "todo",
+      "description": "Collection of journal entries owned by users"
+    }
+  }
+}

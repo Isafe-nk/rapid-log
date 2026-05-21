@@ -1,0 +1,49 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // --- Todo Entity Validation ---
+    function isValidTodo(data) {
+      return data.keys().hasAll(['text', 'completed', 'type', 'timeOfDay', 'userId', 'createdAt'])
+        && data.keys().size() <= 9
+        && data.text is string && data.text.size() <= 1000
+        && data.completed is bool
+        && data.type in ['task', 'event', 'note']
+        && data.timeOfDay in ['morning', 'noon', 'night']
+        && data.userId == request.auth.uid
+        && data.createdAt is number
+        && (data.get('time', null) == null || data.time is string)
+        && (data.get('endTime', null) == null || data.endTime is string)
+        && (data.get('priority', null) == null || data.priority is bool);
+    }
+
+    // --- Collection: Todos ---
+    match /todos/{todoId} {
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() 
+        && isValidTodo(incoming())
+        && isValidId(todoId);
+        
+      allow update: if isOwner(existing().userId)
+        && isValidTodo(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt;
+        
+      allow delete: if isOwner(existing().userId);
+    }
+  }
+}
