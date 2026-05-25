@@ -619,6 +619,13 @@ export default function App() {
                     >
                       <div className="flex flex-col gap-2 pt-1">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowEndTimeInput(!showEndTimeInput)}
+                            className="text-[9px] text-neutral-300 hover:text-neutral-500 transition-colors tracking-wider mr-auto"
+                          >
+                            {showEndTimeInput ? '− end time' : '+ end time'}
+                          </button>
                           <span className="text-[9px] uppercase tracking-widest font-black text-neutral-200 mr-1">Start</span>
                           <div className="flex items-center gap-1">
                             <div className="flex items-center bg-neutral-50/50 rounded-md px-1.5 py-1 gap-1 border border-neutral-100">
