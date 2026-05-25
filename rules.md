@@ -106,3 +106,18 @@ Before submitting pull requests or making updates on `feature/dev`, always run t
    npm run build
    ```
    *(Compiles static assets to ensure code compilation succeeds).*
+
+---
+
+## 🌿 5. Git Branching & Workflow Rules
+
+To ensure highly organized and collaborative developments, all code changes must adhere strictly to these branching rules:
+
+1. **Locking Integration Branches:** Development or production releases must never be edited or committed directly on `main` or `feature/dev`.
+2. **Short-Lived Task Branches:** Every new feature, UI tweak, or bug fix must operate within its own dedicated short-lived branch spawned off `feature/dev`.
+3. **Prefix Taxonomy:**
+   * **`feature/<name>`**: Adding new visual features or user options.
+   * **`bugfix/<name>`**: Resolving functional anomalies, errors, or security misalignments.
+   * **`docs/<name>`**: Refining references, guides, or workspace standards documents.
+4. **Verification Step:** Before merging a task branch back into `feature/dev`, local compile and lint suites (`npm run lint && npm run build`) must run and pass with absolutely zero errors.
+
