@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Star, Calendar, X, RotateCcw, LogIn, LogOut, User } from 'lucide-react';
+import { Trash2, Star, Calendar, X, RotateCcw, LogIn, LogOut, User, Download } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult } from './lib/firebase';
 import { 
@@ -394,15 +394,30 @@ export default function App() {
                 </p>
               </div>
               
-              <button 
-                onClick={signInWithGoogle}
-                className="group w-full flex items-center justify-center gap-4 bg-white border border-neutral-100 py-4 px-6 rounded-2xl shadow-sm hover:shadow-md hover:border-neutral-200 transition-all active:scale-[0.98]"
-              >
-                <div className="bg-neutral-50 p-2 rounded-lg group-hover:bg-neutral-100 transition-colors">
-                  <LogIn size={20} className="text-neutral-400 group-hover:text-neutral-900" />
-                </div>
-                <span className="text-[11px] uppercase tracking-[0.2em] font-black text-neutral-600 group-hover:text-neutral-900">Sign in with Google</span>
-              </button>
+              <div className="space-y-3">
+                <button 
+                  onClick={signInWithGoogle}
+                  className="group w-full flex items-center justify-center gap-4 bg-white border border-neutral-100 py-4 px-6 rounded-2xl shadow-sm hover:shadow-md hover:border-neutral-200 transition-all active:scale-[0.98]"
+                >
+                  <div className="bg-neutral-50 p-2 rounded-lg group-hover:bg-neutral-100 transition-colors">
+                    <LogIn size={20} className="text-neutral-400 group-hover:text-neutral-900" />
+                  </div>
+                  <span className="text-[11px] uppercase tracking-[0.2em] font-black text-neutral-600 group-hover:text-neutral-900">Sign in with Google</span>
+                </button>
+
+                {!(window as any)?.__MACOS_NATIVE__ && (
+                  <a
+                    href="/RapidLog-macOS.zip"
+                    download="RapidLog-macOS.zip"
+                    className="group w-full flex items-center justify-center gap-3 bg-neutral-900 hover:bg-neutral-800 text-white py-3.5 px-6 rounded-2xl shadow-sm transition-all active:scale-[0.98]"
+                  >
+                    <Download size={16} className="text-neutral-300 group-hover:text-white" />
+                    <span className="text-[10px] uppercase tracking-[0.15em] font-black text-neutral-100">
+                      Download Desktop Mac App
+                    </span>
+                  </a>
+                )}
+              </div>
 
               <div className="pt-20">
                 <p className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Free Forever • Local Southeast Asia</p>
@@ -473,23 +488,36 @@ export default function App() {
             </div>
             <div className="flex flex-col items-end gap-3">
               {user && (
-                <div className="flex items-center gap-3 bg-neutral-50/50 p-1 pr-3 rounded-full border border-neutral-100/50 group">
-                  <div className="w-8 h-8 rounded-full bg-neutral-100 overflow-hidden border border-white shadow-sm">
-                    {user.photoURL ? (
-                      <img src={user.photoURL} alt={user.displayName || ''} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-neutral-400">
-                        <User size={14} />
-                      </div>
-                    )}
+                <div className="flex items-center gap-3">
+                  {!(window as any)?.__MACOS_NATIVE__ && (
+                    <a
+                      href="/RapidLog-macOS.zip"
+                      download="RapidLog-macOS.zip"
+                      className="text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                      title="Download Desktop Mac App"
+                    >
+                      <Download size={10} />
+                      Get Mac App
+                    </a>
+                  )}
+                  <div className="flex items-center gap-3 bg-neutral-50/50 p-1 pr-3 rounded-full border border-neutral-100/50 group">
+                    <div className="w-8 h-8 rounded-full bg-neutral-100 overflow-hidden border border-white shadow-sm">
+                      {user.photoURL ? (
+                        <img src={user.photoURL} alt={user.displayName || ''} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                          <User size={14} />
+                        </div>
+                      )}
+                    </div>
+                    <button 
+                      onClick={logout}
+                      className="text-[9px] uppercase tracking-widest font-black text-neutral-300 hover:text-red-500 transition-colors flex items-center gap-2"
+                    >
+                      Logout
+                      <LogOut size={10} />
+                    </button>
                   </div>
-                  <button 
-                    onClick={logout}
-                    className="text-[9px] uppercase tracking-widest font-black text-neutral-300 hover:text-red-500 transition-colors flex items-center gap-2"
-                  >
-                    Logout
-                    <LogOut size={10} />
-                  </button>
                 </div>
               )}
             </div>
