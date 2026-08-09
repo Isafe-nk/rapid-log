@@ -99,13 +99,15 @@ export default function App() {
           && d.getFullYear() === today.getFullYear();
     });
     try {
-      (window as any).webkit?.messageHandlers?.taskUpdate?.postMessage(
-        JSON.stringify(todayTasks)
-      );
+      const handler = (window as any).webkit?.messageHandlers?.taskUpdate;
+      if (handler) {
+        console.log(`[RapidLog Native] Posting ${todayTasks.length} tasks to native menu bar`);
+        handler.postMessage(JSON.stringify(todayTasks));
+      }
     } catch (e) {
-      // Silently ignore if handler not available
+      console.error("[RapidLog Native] Error posting task update:", e);
     }
-  }, [todos]);
+  }, [todos, user]);
 
   // Set default times based on selected section
   React.useEffect(() => {
