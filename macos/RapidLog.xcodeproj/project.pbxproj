@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0C158486D3746BA752E09470 /* RapidLogApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3517BC4DC514C8F17D2A2F /* RapidLogApp.swift */; };
+		A0ADA2E9B05A4F9968801B58 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C4B0E9338E3BE3D2ABF2414D /* Assets.xcassets */; };
 		CF1203B89097105AF5F27B1F /* MenuBarPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7DB37FC8B11E2E6E0DE4D5B /* MenuBarPopover.swift */; };
 		D5DE1F90ECFF5F3C166E5654 /* MenuBarViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1175AA9C81E2AC594205900C /* MenuBarViewModel.swift */; };
 		F114A164E0B726F1AE2997FC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC57ED4F18836FA101685149 /* ContentView.swift */; };
@@ -16,8 +17,10 @@
 /* Begin PBXFileReference section */
 		1175AA9C81E2AC594205900C /* MenuBarViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarViewModel.swift; sourceTree = "<group>"; };
 		327D7B487859E28EFC85BB1E /* RapidLog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RapidLog.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		768193A15FC5515887706A3F /* RapidLog.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RapidLog.entitlements; sourceTree = "<group>"; };
 		AF3517BC4DC514C8F17D2A2F /* RapidLogApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RapidLogApp.swift; sourceTree = "<group>"; };
 		B7DB37FC8B11E2E6E0DE4D5B /* MenuBarPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPopover.swift; sourceTree = "<group>"; };
+		C4B0E9338E3BE3D2ABF2414D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		EC57ED4F18836FA101685149 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -41,9 +44,11 @@
 		E9B3344D9A15244B78758AEA /* RapidLog */ = {
 			isa = PBXGroup;
 			children = (
+				C4B0E9338E3BE3D2ABF2414D /* Assets.xcassets */,
 				EC57ED4F18836FA101685149 /* ContentView.swift */,
 				B7DB37FC8B11E2E6E0DE4D5B /* MenuBarPopover.swift */,
 				1175AA9C81E2AC594205900C /* MenuBarViewModel.swift */,
+				768193A15FC5515887706A3F /* RapidLog.entitlements */,
 				AF3517BC4DC514C8F17D2A2F /* RapidLogApp.swift */,
 			);
 			path = RapidLog;
@@ -57,6 +62,7 @@
 			buildConfigurationList = 17BD25FC1527ECBB854A878E /* Build configuration list for PBXNativeTarget "RapidLog" */;
 			buildPhases = (
 				FE8C102C363B874B24077FBA /* Sources */,
+				179D0035B737094288BB7B9E /* Resources */,
 			);
 			buildRules = (
 			);
@@ -101,6 +107,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		179D0035B737094288BB7B9E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0ADA2E9B05A4F9968801B58 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		FE8C102C363B874B24077FBA /* Sources */ = {
