@@ -2,15 +2,19 @@ import SwiftUI
 import WebKit
 
 struct ContentView: View {
+    let viewModel: MenuBarViewModel
+
     var body: some View {
-        WebView()
+        WebView(viewModel: viewModel)
             .ignoresSafeArea()
     }
 }
 
 struct WebView: NSViewRepresentable {
+    let viewModel: MenuBarViewModel
+
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(viewModel: viewModel)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -24,6 +28,9 @@ struct WebView: NSViewRepresentable {
             forMainFrameOnly: false
         )
         config.userContentController.addUserScript(script)
+
+        // Register message handler for receiving task data from JS
+        config.userContentController.add(context.coordinator, name: "taskUpdate")
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -41,7 +48,25 @@ struct WebView: NSViewRepresentable {
 }
 
 // MARK: - Delegates
-class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    let viewModel: MenuBarViewModel
+
+    init(viewModel: MenuBarViewModel) {
+        self.viewModel = viewModel
+        super.init()
+    }
+
+    // MARK: - WKScriptMessageHandler — receive task data from JS
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        if message.name == "taskUpdate", let jsonString = message.body as? String {
+            DispatchQueue.main.async {
+                self.viewModel.updateFromJSON(jsonString)
+            }
+        }
+    }
 
     // Handle popup requests by loading in the same webview (avoids crash)
     func webView(

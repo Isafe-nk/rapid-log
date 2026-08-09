@@ -17,6 +17,8 @@ targets:
     sources:
       - path: RapidLog/RapidLogApp.swift
       - path: RapidLog/ContentView.swift
+      - path: RapidLog/MenuBarViewModel.swift
+      - path: RapidLog/MenuBarPopover.swift
     resources:
       - path: RapidLog/public
         type: folder

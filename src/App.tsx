@@ -88,6 +88,25 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // Push task data to macOS native menu bar
+  useEffect(() => {
+    if (!(window as any)?.__MACOS_NATIVE__) return;
+    const today = new Date();
+    const todayTasks = todos.filter(t => {
+      const d = new Date(t.createdAt);
+      return d.getDate() === today.getDate()
+          && d.getMonth() === today.getMonth()
+          && d.getFullYear() === today.getFullYear();
+    });
+    try {
+      (window as any).webkit?.messageHandlers?.taskUpdate?.postMessage(
+        JSON.stringify(todayTasks)
+      );
+    } catch (e) {
+      // Silently ignore if handler not available
+    }
+  }, [todos]);
+
   // Set default times based on selected section
   React.useEffect(() => {
     if (selectedTime === 'morning') {
