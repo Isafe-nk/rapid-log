@@ -14,7 +14,7 @@ import {
   Check
 } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
-import { auth, db, signInWithGoogle, logout, handleRedirectResult } from './lib/firebase';
+import { auth, db, signInWithGoogle, logout, handleRedirectResult, isNative } from './lib/firebase';
 import { 
   collection, 
   query, 
@@ -92,6 +92,17 @@ const isSameDay = (d1: Date, d2: Date) =>
 // reachable on today's log instead of appearing on every single date.
 const entryDateOf = (t: Todo, today: Date) => parseDate(t.createdAt) ?? today;
 
+// Slow-out cubic. Motion decelerates into place rather than stopping dead.
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+// Each block arrives slightly after the one above it, so the page assembles
+// top-down instead of appearing all at once.
+const reveal = (shown: boolean, delay: number) => ({
+  initial: { opacity: 0, y: 14 },
+  animate: shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 },
+  transition: { duration: 0.55, ease: EASE, delay: shown ? delay : 0 }
+});
+
 const startOfToday = () => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -100,7 +111,12 @@ const startOfToday = () => {
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  // `user === null` means two different things — "signed out" and "we have not
+  // heard back yet" — so the two are tracked apart. Showing the landing page on
+  // the second one is what made it flash on every launch.
+  const [authReady, setAuthReady] = useState(false);
+  const [redirectChecked, setRedirectChecked] = useState(!isNative());
+  const [todosLoaded, setTodosLoaded] = useState(false);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [todayStart, setTodayStart] = useState(startOfToday);
@@ -149,15 +165,24 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      // Signed out means there is nothing left to fetch. When signed in we stay
-      // in the loading state until the Firestore listener delivers a snapshot.
-      if (!u) setLoading(false);
+      setAuthReady(true);
     });
-    if (typeof (window as any)?.Capacitor !== 'undefined' || (window as any)?.__MACOS_NATIVE__) {
-      handleRedirectResult().catch((e: any) => {
-        setAuthError(e?.code || e?.message || 'Sign in failed');
-      });
+
+    if (isNative()) {
+      // On the redirect flow the first auth callback reports null and the real
+      // result lands afterwards. Waiting for it stops the app deciding you are
+      // signed out and showing the landing page mid sign-in.
+      const settle = () => setRedirectChecked(true);
+      // Never leave the splash up for good if this cannot settle.
+      const bail = window.setTimeout(settle, 5000);
+      handleRedirectResult()
+        .catch((e: any) => setAuthError(e?.code || e?.message || 'Sign in failed'))
+        .finally(() => {
+          window.clearTimeout(bail);
+          settle();
+        });
     }
+
     return () => unsubscribe();
   }, []);
 
@@ -165,9 +190,13 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setTodos([]);
-      setLoading(false);
+      setTodosLoaded(true);
       return;
     }
+
+    // Waiting on this user's first snapshot. Without resetting, the flag set by
+    // the signed-out branch above would let an empty list render first.
+    setTodosLoaded(false);
 
     const q = query(collection(db, 'todos'), where('userId', '==', user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -176,10 +205,10 @@ export default function App() {
         ...doc.data()
       })) as Todo[];
       setTodos(fetchedTodos);
-      setLoading(false);
+      setTodosLoaded(true);
     }, (error) => {
       console.error("Firestore error:", error);
-      setLoading(false);
+      setTodosLoaded(true);
     });
 
     return () => unsubscribe();
@@ -514,6 +543,14 @@ export default function App() {
     return days;
   }, [viewDate]);
 
+  // Auth has genuinely answered: it reported once, and any pending redirect has
+  // resolved. Only then does a null user actually mean "signed out".
+  const authSettled = authReady && redirectChecked;
+  const showSplash = !authSettled || (!!user && !todosLoaded);
+  const showAuthScreen = authSettled && !user;
+  // The app is the visible layer: nothing is covering it.
+  const appVisible = !showSplash && !showAuthScreen;
+
   const changeMonth = (offset: number) => {
     const d = new Date(viewDate);
     d.setMonth(d.getMonth() + offset);
@@ -524,7 +561,7 @@ export default function App() {
     <div className="min-h-screen bg-[#fcfcf9] text-[#1a1a1a] font-mono selection:bg-neutral-200 relative">
       {/* Auth Screen */}
       <AnimatePresence>
-        {!user && !loading && (
+        {showAuthScreen && (
           <motion.div
             key="auth"
             initial={{ opacity: 0 }}
@@ -580,15 +617,22 @@ export default function App() {
           </motion.div>
         )}
 
-        {loading && (
-          <motion.div 
+        {showSplash && (
+          <motion.div
             key="loading"
-            initial={{ opacity: 0 }}
+            // Opaque from the first frame; fading in would flash the app behind.
+            initial={{ opacity: 1 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.45, ease: EASE } }}
             className="fixed inset-0 z-[100] bg-[#fcfcf9] flex items-center justify-center"
           >
-            <div className="w-8 h-8 border-2 border-neutral-100 border-t-neutral-900 rounded-full animate-spin" />
+            {/* Held back a beat so a fast load never flashes a spinner. */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: { delay: 0.25, duration: 0.3 } }}
+              exit={{ opacity: 0, transition: { duration: 0.15 } }}
+              className="w-8 h-8 border-2 border-neutral-100 border-t-neutral-900 rounded-full animate-spin"
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -603,7 +647,7 @@ export default function App() {
       />
 
       <div className="max-w-2xl mx-auto px-10 py-24 relative z-10">
-        <header className="mb-16 relative">
+        <motion.header className="mb-16 relative" {...reveal(appVisible, 0.1)}>
           <div className="flex items-start justify-between">
             <div className="flex gap-4 items-start">
               <div className="flex flex-col">
@@ -734,10 +778,10 @@ export default function App() {
               </motion.div>
             )}
           </AnimatePresence>
-        </header>
+        </motion.header>
 
         {/* Input area */}
-        <form onSubmit={addTodo} className="mb-20">
+        <motion.form onSubmit={addTodo} className="mb-20" {...reveal(appVisible, 0.18)}>
           <div className="flex flex-col gap-6 border-l-2 border-neutral-100 pl-6 py-2">
             <div className="flex items-center gap-3">
               <span className="text-xl w-6 flex justify-center text-neutral-400">
@@ -931,10 +975,10 @@ export default function App() {
             </AnimatePresence>
           </div>
           <input type="submit" hidden />
-        </form>
+        </motion.form>
 
         {/* Sections */}
-        <div className="space-y-20">
+        <motion.div className="space-y-20" {...reveal(appVisible, 0.26)}>
           {TIMES_OF_DAY.map((time) => {
             const timeTodos = activeTodos.filter(t => t.timeOfDay === time.id);
             return (
@@ -1079,7 +1123,7 @@ export default function App() {
               </div>
             );
           })}
-        </div>
+        </motion.div>
 
         {/* Archive Toggle */}
         {completedTodos.length > 0 && (

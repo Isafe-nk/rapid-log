@@ -22,7 +22,7 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 // Detect if running inside a native app wrapper (Capacitor iOS or macOS WKWebView)
-const isNative = () => {
+export const isNative = () => {
   return typeof (window as any)?.Capacitor !== 'undefined'
     || (window as any)?.__MACOS_NATIVE__ === true;
 };
