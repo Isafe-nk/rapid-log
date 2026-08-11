@@ -1,27 +1,21 @@
 import SwiftUI
 import WebKit
 
-struct ContentView: View {
+/// Owns the single WKWebView for the app's lifetime. The web view must outlive
+/// the window: it is the only source of task data for the menu bar popover, and
+/// closing the window used to tear it down and leave the popover stale and inert.
+class WebEngine: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let viewModel: MenuBarViewModel
+    let webView: WKWebView
 
-    var body: some View {
-        WebView(viewModel: viewModel)
-            .ignoresSafeArea()
-    }
-}
+    private static let homeURL = URL(string: "https://to-do-rapidlog.web.app")!
 
-struct WebView: NSViewRepresentable {
-    let viewModel: MenuBarViewModel
+    init(viewModel: MenuBarViewModel) {
+        self.viewModel = viewModel
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel)
-    }
-
-    func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
-        // Inject flag so the web app knows it's running in the native macOS wrapper
         let script = WKUserScript(
             source: "window.__MACOS_NATIVE__ = true;",
             injectionTime: .atDocumentStart,
@@ -29,34 +23,38 @@ struct WebView: NSViewRepresentable {
         )
         config.userContentController.addUserScript(script)
 
-        // Register message handler for receiving task data from JS
-        config.userContentController.add(context.coordinator, name: "taskUpdate")
-
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-
-        // Load from Firebase Hosting
-        let url = URL(string: "https://to-do-rapidlog.web.app")!
-        webView.load(URLRequest(url: url))
-        print("[RapidLog] Loading from: \(url)")
-
-        return webView
-    }
-
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
-}
-
-// MARK: - Delegates
-class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
-    let viewModel: MenuBarViewModel
-
-    init(viewModel: MenuBarViewModel) {
-        self.viewModel = viewModel
+        webView = WKWebView(frame: .zero, configuration: config)
         super.init()
+
+        config.userContentController.add(self, name: "taskUpdate")
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+
+        viewModel.onToggleTask = { [weak self] taskId in
+            DispatchQueue.main.async {
+                self?.webView.evaluateJavaScript(
+                    "window.__toggleTodoFromNative && window.__toggleTodoFromNative('\(taskId)');"
+                )
+            }
+        }
     }
 
-    // MARK: - WKScriptMessageHandler — receive task data from JS
+    func loadIfNeeded() {
+        guard webView.url == nil else { return }
+        load()
+    }
+
+    /// Always revalidates the document. A cached index.html points at a stale
+    /// hashed bundle that Firebase still serves, so the app would silently run
+    /// old code after a deploy.
+    func load() {
+        var request = URLRequest(url: Self.homeURL)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        webView.load(request)
+        print("[RapidLog] Loading from: \(Self.homeURL)")
+    }
+
+    // MARK: - WKScriptMessageHandler
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
@@ -68,14 +66,13 @@ class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessage
         }
     }
 
-    // Handle popup requests by loading in the same webview (avoids crash)
+    // MARK: - WKUIDelegate
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        // Don't create popup — redirect-based auth is used instead
         if let url = navigationAction.request.url {
             print("[RapidLog] Popup request for: \(url) — loading in main view")
             webView.load(navigationAction.request)
@@ -83,6 +80,7 @@ class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessage
         return nil
     }
 
+    // MARK: - WKNavigationDelegate
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -99,9 +97,30 @@ class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessage
         print("[RapidLog] Load failed: \(error.localizedDescription)")
     }
 
-    // Handle WebContent process crash — reload instead of staying blank
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         print("[RapidLog] WebContent process terminated, reloading...")
         webView.reload()
     }
+}
+
+struct ContentView: View {
+    let webEngine: WebEngine
+
+    var body: some View {
+        WebViewContainer(webEngine: webEngine)
+            .ignoresSafeArea()
+    }
+}
+
+/// Hands the long-lived web view to SwiftUI. Detaching from any previous
+/// superview lets the window be closed and reopened around the same instance.
+struct WebViewContainer: NSViewRepresentable {
+    let webEngine: WebEngine
+
+    func makeNSView(context: Context) -> WKWebView {
+        webEngine.webView.removeFromSuperview()
+        return webEngine.webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
 }

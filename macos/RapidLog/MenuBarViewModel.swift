@@ -15,6 +15,18 @@ struct TaskItem: Codable, Identifiable {
         case id, text, completed, type, timeOfDay, time, endTime, priority, createdAt
     }
 
+    init(id: String, text: String, completed: Bool, type: String, timeOfDay: String, time: String?, endTime: String?, priority: Bool, createdAt: Double) {
+        self.id = id
+        self.text = text
+        self.completed = completed
+        self.type = type
+        self.timeOfDay = timeOfDay
+        self.time = time
+        self.endTime = endTime
+        self.priority = priority
+        self.createdAt = createdAt
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -29,9 +41,9 @@ struct TaskItem: Codable, Identifiable {
     }
 }
 
-@Observable
-class MenuBarViewModel {
-    var tasks: [TaskItem] = []
+class MenuBarViewModel: ObservableObject {
+    @Published var tasks: [TaskItem] = []
+    var onToggleTask: ((String) -> Void)? = nil
 
     var activeTasks: [TaskItem] {
         tasks.filter { !$0.completed }
@@ -49,6 +61,24 @@ class MenuBarViewModel {
         activeTasks
             .filter { $0.timeOfDay == section }
             .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    func toggleLocalTask(_ id: String) {
+        if let index = tasks.firstIndex(where: { $0.id == id }) {
+            let item = tasks[index]
+            tasks[index] = TaskItem(
+                id: item.id,
+                text: item.text,
+                completed: !item.completed,
+                type: item.type,
+                timeOfDay: item.timeOfDay,
+                time: item.time,
+                endTime: item.endTime,
+                priority: item.priority,
+                createdAt: item.createdAt
+            )
+        }
+        onToggleTask?(id)
     }
 
     func updateFromJSON(_ jsonString: String) {

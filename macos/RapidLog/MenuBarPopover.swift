@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MenuBarPopover: View {
-    let viewModel: MenuBarViewModel
+    @ObservedObject var viewModel: MenuBarViewModel
 
     @State private var showCompleted = false
 
@@ -39,9 +39,6 @@ struct MenuBarPopover: View {
                 }
                 .frame(maxHeight: 360)
             }
-
-            Divider()
-            footer
         }
         .frame(width: 280)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -83,55 +80,17 @@ struct MenuBarPopover: View {
 
     // MARK: - Section
     private func sectionView(label: String, tasks: [TaskItem]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
                 .font(.system(size: 9, weight: .heavy, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .tracking(2)
+                .padding(.bottom, 2)
 
             ForEach(tasks) { task in
-                taskRow(task)
+                TaskRowView(task: task, viewModel: viewModel)
             }
         }
-    }
-
-    // MARK: - Task Row
-    private func taskRow(_ task: TaskItem) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(bulletFor(task))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(task.priority ? .orange : .secondary)
-                .frame(width: 12)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    if task.priority {
-                        Text("★")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.orange)
-                    }
-                    Text(task.text)
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                        .lineLimit(2)
-                }
-
-                if let time = task.time {
-                    HStack(spacing: 0) {
-                        Text(time)
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        if let endTime = task.endTime {
-                            Text(" – \(endTime)")
-                                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 2)
     }
 
     // MARK: - Completed
@@ -155,54 +114,9 @@ struct MenuBarPopover: View {
 
             if showCompleted {
                 ForEach(viewModel.completedTasks) { task in
-                    HStack(spacing: 8) {
-                        Text("✓")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.green)
-                            .frame(width: 12)
-                        Text(task.text)
-                            .font(.system(size: 11, design: .monospaced))
-                            .strikethrough()
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                    .padding(.vertical, 1)
+                    CompletedTaskRowView(task: task, viewModel: viewModel)
                 }
             }
-        }
-    }
-
-    // MARK: - Footer
-    private var footer: some View {
-        Button {
-            NSApp.activate(ignoringOtherApps: true)
-            // Bring the main window to front
-            for window in NSApp.windows where window.title == "Rapid Log" || window.canBecomeMain {
-                window.makeKeyAndOrderFront(nil)
-                break
-            }
-        } label: {
-            HStack {
-                Spacer()
-                Text("Open Rapid Log")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .tracking(1)
-                Spacer()
-            }
-            .padding(.vertical, 8)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Helpers
-    private func bulletFor(_ task: TaskItem) -> String {
-        switch task.type {
-        case "event": return "○"
-        case "note": return "—"
-        default: return "●"
         }
     }
 
@@ -221,5 +135,115 @@ struct MenuBarPopover: View {
         let fmt = DateFormatter()
         fmt.dateFormat = "EEEE, d MMM"
         return fmt.string(from: Date())
+    }
+}
+
+// MARK: - Active Task Row with Hover Completion
+struct TaskRowView: View {
+    let task: TaskItem
+    @ObservedObject var viewModel: MenuBarViewModel
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            viewModel.toggleLocalTask(task.id)
+        } label: {
+            HStack(alignment: .top, spacing: 8) {
+                Group {
+                    if isHovered {
+                        Text("✓")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.green)
+                    } else {
+                        Text(bulletFor(task))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(task.priority ? .orange : .secondary)
+                    }
+                }
+                .frame(width: 14)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        if task.priority {
+                            Text("★")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.orange)
+                        }
+                        Text(task.text)
+                            .font(.system(size: 12, weight: .regular, design: .monospaced))
+                            .foregroundStyle(isHovered ? .primary : .primary)
+                            .strikethrough(isHovered)
+                            .lineLimit(2)
+                    }
+
+                    if let time = task.time {
+                        HStack(spacing: 0) {
+                            Text(time)
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                            if let endTime = task.endTime {
+                                Text(" – \(endTime)")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.vertical, 3)
+            .padding(.horizontal, 6)
+            .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+
+    private func bulletFor(_ task: TaskItem) -> String {
+        switch task.type {
+        case "event": return "○"
+        case "note": return "—"
+        default: return "●"
+        }
+    }
+}
+
+// MARK: - Completed Task Row with Hover Restore
+struct CompletedTaskRowView: View {
+    let task: TaskItem
+    @ObservedObject var viewModel: MenuBarViewModel
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            viewModel.toggleLocalTask(task.id)
+        } label: {
+            HStack(spacing: 8) {
+                Text(isHovered ? "↺" : "✓")
+                    .font(.system(size: 10, weight: isHovered ? .bold : .regular, design: .monospaced))
+                    .foregroundStyle(isHovered ? .orange : .green)
+                    .frame(width: 14)
+
+                Text(task.text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .strikethrough(!isHovered)
+                    .foregroundStyle(isHovered ? .primary : .tertiary)
+                    .lineLimit(1)
+
+                Spacer()
+            }
+            .padding(.vertical, 2)
+            .padding(.horizontal, 6)
+            .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+        }
     }
 }
