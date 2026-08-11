@@ -27,6 +27,11 @@ struct TaskItem: Codable, Identifiable {
         self.createdAt = createdAt
     }
 
+    func withCompleted(_ value: Bool) -> TaskItem {
+        TaskItem(id: id, text: text, completed: value, type: type, timeOfDay: timeOfDay,
+                 time: time, endTime: endTime, priority: priority, createdAt: createdAt)
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
@@ -74,19 +79,42 @@ fileprivate func byTimeThenCreated(_ a: TaskItem, _ b: TaskItem) -> Bool {
 
 class MenuBarViewModel: ObservableObject {
     @Published var tasks: [TaskItem] = []
+
+    /// Rows the user just tapped, mapped to the state they are moving toward.
+    /// A settling row is pinned in the list it is currently in and drawn in its
+    /// new state, so the tap is acknowledged for one beat before the row leaves
+    /// instead of vanishing on contact.
+    @Published private(set) var settling: [String: Bool] = [:]
+
     var onToggleTask: ((String) -> Void)? = nil
 
+    /// How long a tapped row holds its acknowledgement before leaving.
+    private let settleDelay: TimeInterval = 0.3
+
     var activeTasks: [TaskItem] {
-        tasks.filter { !$0.completed }
+        tasks.filter { !$0.completed || settling[$0.id] == true }
     }
 
     var completedTasks: [TaskItem] {
-        tasks.filter { $0.completed }.sorted(by: byTimeThenCreated)
+        tasks
+            .filter { ($0.completed || settling[$0.id] == false) && settling[$0.id] != true }
+            .sorted(by: byTimeThenCreated)
     }
 
-    var activeCount: Int { activeTasks.count }
-    var completedCount: Int { completedTasks.count }
+    /// Counts follow the tapped state immediately, so the header reacts on
+    /// contact while the row itself is still settling.
+    var activeCount: Int { tasks.filter { !displayCompleted($0) }.count }
+    var completedCount: Int { tasks.filter { displayCompleted($0) }.count }
     var totalCount: Int { tasks.count }
+
+    /// Whether a row should be drawn as completed, including while settling.
+    func displayCompleted(_ task: TaskItem) -> Bool {
+        settling[task.id] ?? task.completed
+    }
+
+    func isSettling(_ id: String) -> Bool {
+        settling[id] != nil
+    }
 
     func tasksForSection(_ section: String) -> [TaskItem] {
         activeTasks
@@ -95,28 +123,38 @@ class MenuBarViewModel: ObservableObject {
     }
 
     func toggleLocalTask(_ id: String) {
-        if let index = tasks.firstIndex(where: { $0.id == id }) {
-            let item = tasks[index]
-            tasks[index] = TaskItem(
-                id: item.id,
-                text: item.text,
-                completed: !item.completed,
-                type: item.type,
-                timeOfDay: item.timeOfDay,
-                time: item.time,
-                endTime: item.endTime,
-                priority: item.priority,
-                createdAt: item.createdAt
-            )
+        guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
+        // Ignore repeat taps while a row is mid-animation.
+        guard settling[id] == nil else { return }
+
+        let target = !tasks[index].completed
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            settling[id] = target
         }
+
+        // The round trip starts straight away; the delay below is presentation
+        // only and never holds up the write.
         onToggleTask?(id)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) { [weak self] in
+            guard let self else { return }
+            if let i = self.tasks.firstIndex(where: { $0.id == id }) {
+                self.tasks[i] = self.tasks[i].withCompleted(target)
+            }
+            withAnimation(.easeInOut(duration: 0.28)) {
+                self.settling[id] = nil
+            }
+        }
     }
 
     func updateFromJSON(_ jsonString: String) {
         guard let data = jsonString.data(using: .utf8) else { return }
         do {
             let decoded = try JSONDecoder().decode([TaskItem].self, from: data)
-            tasks = decoded
+            withAnimation(.easeInOut(duration: 0.24)) {
+                tasks = decoded
+            }
             print("[RapidLog] Successfully updated \(decoded.count) tasks in menu bar")
         } catch {
             print("[RapidLog] Failed to decode tasks: \(error)")
