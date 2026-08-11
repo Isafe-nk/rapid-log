@@ -60,6 +60,29 @@ const timeValue = (val: any): number => {
   return d ? d.getTime() : 0;
 };
 
+// Minutes since midnight for a stored display time like "9:00 AM", or null when
+// the entry has no time set (or an unrecognised one).
+const minutesOfDay = (time: string | null | undefined): number | null => {
+  if (!time) return null;
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(time.trim());
+  if (!m) return null;
+  const hours = parseInt(m[1], 10) % 12;
+  const isPM = m[3].toUpperCase() === 'PM';
+  return (hours + (isPM ? 12 : 0)) * 60 + parseInt(m[2], 10);
+};
+
+// A section reads as a timeline: timed entries in clock order, then untimed ones
+// in the order they were added. The priority star is purely visual and does not
+// reorder anything.
+const byTimeThenCreated = (a: Todo, b: Todo) => {
+  const at = minutesOfDay(a.time);
+  const bt = minutesOfDay(b.time);
+  if (at !== null && bt !== null && at !== bt) return at - bt;
+  if (at !== null && bt === null) return -1;
+  if (at === null && bt !== null) return 1;
+  return timeValue(a.createdAt) - timeValue(b.createdAt);
+};
+
 const isSameDay = (d1: Date, d2: Date) =>
   d1.getDate() === d2.getDate() &&
   d1.getMonth() === d2.getMonth() &&
@@ -252,14 +275,14 @@ export default function App() {
     const today = new Date(todayStart);
     return todos
       .filter(t => !t.completed && isSameDay(entryDateOf(t, today), currentDate))
-      .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
+      .sort(byTimeThenCreated);
   }, [todos, currentDate, todayStart]);
 
   const completedTodos = useMemo(() => {
     const today = new Date(todayStart);
     return todos
       .filter(t => t.completed && isSameDay(entryDateOf(t, today), currentDate))
-      .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+      .sort(byTimeThenCreated);
   }, [todos, currentDate, todayStart]);
 
   const addTodo = async (e: React.FormEvent) => {
@@ -974,14 +997,8 @@ export default function App() {
                           </div>
                         )}
                         
-                        <div className={`flex-1 text-lg leading-relaxed pt-0.5 ${entry.type === 'note' ? 'italic text-neutral-600' : ''}`}>
-                          {(entry.time || entry.endTime) && (
-                            <span className="text-[10px] text-neutral-400 mr-3 font-bold tabular-nums opacity-60 flex flex-col leading-none mb-1">
-                              {entry.time && <span>{entry.time}</span>}
-                              {entry.endTime && <span className="opacity-50">— {entry.endTime}</span>}
-                            </span>
-                          )}
-
+                        <div className={`flex-1 min-w-0 flex flex-col items-start text-lg leading-relaxed pt-0.5 ${entry.type === 'note' ? 'italic text-neutral-600' : ''}`}>
+                          <div className="w-full min-w-0">
                           {editingId === entry.id ? (
                             <input
                               type="text"
@@ -1010,6 +1027,14 @@ export default function App() {
                               }}
                             >
                               {entry.text}
+                            </span>
+                          )}
+                          </div>
+
+                          {(entry.time || entry.endTime) && (
+                            <span className="mt-1 text-[10px] text-neutral-400 font-bold tabular-nums opacity-60 leading-none whitespace-nowrap">
+                              {entry.time}
+                              {entry.endTime && <span className="opacity-50"> — {entry.endTime}</span>}
                             </span>
                           )}
                         </div>
@@ -1082,15 +1107,15 @@ export default function App() {
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className="text-lg leading-relaxed pt-0.5 text-neutral-300 line-through decoration-neutral-200 truncate">
-                          {entry.time && (
-                            <span className="text-[10px] mr-2 opacity-50">{entry.time}</span>
-                          )}
-                          {entry.endTime && (
-                            <span className="text-[10px] mr-2 opacity-30">— {entry.endTime}</span>
-                          )}
                           {entry.text}
                         </span>
-                        <span className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">
+                        {(entry.time || entry.endTime) && (
+                          <span className="mt-1 text-[10px] text-neutral-300 font-bold tabular-nums opacity-70 leading-none whitespace-nowrap">
+                            {entry.time}
+                            {entry.endTime && <span className="opacity-60"> — {entry.endTime}</span>}
+                          </span>
+                        )}
+                        <span className="mt-1 text-[9px] uppercase tracking-widest text-neutral-200 font-bold">
                           {entry.timeOfDay}
                         </span>
                       </div>
