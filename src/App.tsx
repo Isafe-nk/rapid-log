@@ -248,6 +248,14 @@ export default function App() {
     }
   }, [todos, user, todayStart]);
 
+  // A drag cancelled with Escape, or released outside any section, never fires
+  // dragleave on the section it was over, which would strand the highlight.
+  useEffect(() => {
+    const clear = () => setDragOverTime(null);
+    window.addEventListener('dragend', clear);
+    return () => window.removeEventListener('dragend', clear);
+  }, []);
+
   // Global listener to close context menu
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
@@ -989,22 +997,27 @@ export default function App() {
                 }`}
                 onDragOver={(e) => {
                   e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
                   if (dragOverTime !== time.id) setDragOverTime(time.id);
                 }}
-                onDragLeave={() => {
+                onDragLeave={(e) => {
+                  // dragleave also fires when the pointer crosses onto a child
+                  // inside the section, which made the highlight flicker on and
+                  // off. relatedTarget is what is being entered, so ignore the
+                  // event while it is still somewhere inside this section.
+                  if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
                   setDragOverTime(null);
                 }}
-                onDrop={async (e) => {
+                onDrop={(e) => {
                   e.preventDefault();
                   setDragOverTime(null);
                   const todoId = e.dataTransfer.getData('todoId');
-                  if (todoId) {
-                    try {
-                      await updateDoc(doc(db, 'todos', todoId), { timeOfDay: time.id });
-                    } catch (error) {
-                      console.error("Error updating timeOfDay:", error);
-                    }
-                  }
+                  if (!todoId) return;
+                  const dropped = todos.find(t => t.id === todoId);
+                  if (dropped?.timeOfDay === time.id) return;
+                  // Shares the optimistic path, so the entry moves on release
+                  // instead of after the round trip.
+                  changeTimeOfDay(todoId, time.id);
                 }}
               >
                 <div className="flex items-center gap-4 mb-8">
