@@ -194,7 +194,7 @@ export default function App() {
     const today = new Date(todayStart);
     const todayTasks = todos
       .filter(t => isSameDay(entryDateOf(t, today), today))
-      .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
+      .sort(byTimeThenCreated);
     try {
       const handler = (window as any).webkit?.messageHandlers?.taskUpdate;
       if (handler) {
@@ -1034,7 +1034,7 @@ export default function App() {
                           {(entry.time || entry.endTime) && (
                             <span className="mt-1 text-[10px] text-neutral-400 font-bold tabular-nums opacity-60 leading-none whitespace-nowrap">
                               {entry.time}
-                              {entry.endTime && <span className="opacity-50"> — {entry.endTime}</span>}
+                              {entry.endTime && <> — {entry.endTime}</>}
                             </span>
                           )}
                         </div>
@@ -1112,7 +1112,7 @@ export default function App() {
                         {(entry.time || entry.endTime) && (
                           <span className="mt-1 text-[10px] text-neutral-300 font-bold tabular-nums opacity-70 leading-none whitespace-nowrap">
                             {entry.time}
-                            {entry.endTime && <span className="opacity-60"> — {entry.endTime}</span>}
+                            {entry.endTime && <> — {entry.endTime}</>}
                           </span>
                         )}
                         <span className="mt-1 text-[9px] uppercase tracking-widest text-neutral-200 font-bold">

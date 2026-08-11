@@ -41,6 +41,37 @@ struct TaskItem: Codable, Identifiable {
     }
 }
 
+/// Minutes since midnight for a stored display time like "9:00 AM", or nil when
+/// the entry has no time set (or an unrecognised one). Mirrors minutesOfDay in
+/// the web app so the popover and the window order a section identically.
+fileprivate func minutesOfDay(_ time: String?) -> Int? {
+    guard let raw = time?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+    let parts = raw.split(separator: " ")
+    guard parts.count == 2 else { return nil }
+
+    let clock = parts[0].split(separator: ":")
+    guard clock.count == 2,
+          let hour = Int(clock[0]), let minute = Int(clock[1]),
+          (0...23).contains(hour), (0...59).contains(minute) else { return nil }
+
+    let suffix = parts[1].uppercased()
+    guard suffix == "AM" || suffix == "PM" else { return nil }
+
+    return (hour % 12 + (suffix == "PM" ? 12 : 0)) * 60 + minute
+}
+
+/// A section reads as a timeline: timed entries in clock order, then untimed
+/// ones in the order they were added. The priority star is purely visual and
+/// does not reorder anything.
+fileprivate func byTimeThenCreated(_ a: TaskItem, _ b: TaskItem) -> Bool {
+    switch (minutesOfDay(a.time), minutesOfDay(b.time)) {
+    case let (x?, y?) where x != y: return x < y
+    case (_?, nil): return true
+    case (nil, _?): return false
+    default: return a.createdAt < b.createdAt
+    }
+}
+
 class MenuBarViewModel: ObservableObject {
     @Published var tasks: [TaskItem] = []
     var onToggleTask: ((String) -> Void)? = nil
@@ -50,7 +81,7 @@ class MenuBarViewModel: ObservableObject {
     }
 
     var completedTasks: [TaskItem] {
-        tasks.filter { $0.completed }
+        tasks.filter { $0.completed }.sorted(by: byTimeThenCreated)
     }
 
     var activeCount: Int { activeTasks.count }
@@ -60,7 +91,7 @@ class MenuBarViewModel: ObservableObject {
     func tasksForSection(_ section: String) -> [TaskItem] {
         activeTasks
             .filter { $0.timeOfDay == section }
-            .sorted { $0.createdAt < $1.createdAt }
+            .sorted(by: byTimeThenCreated)
     }
 
     func toggleLocalTask(_ id: String) {
