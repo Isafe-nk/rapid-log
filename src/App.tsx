@@ -1,6 +1,18 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trash2, Star, Calendar, X, RotateCcw, LogIn, LogOut, User, Download } from 'lucide-react';
+import { 
+  Trash2, 
+  Star, 
+  Calendar, 
+  X, 
+  RotateCcw, 
+  LogIn, 
+  LogOut, 
+  User, 
+  Download,
+  Edit3,
+  Check
+} from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult } from './lib/firebase';
 import { 
@@ -11,8 +23,7 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
-  doc, 
-  setDoc
+  doc 
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
@@ -27,11 +38,49 @@ const TIMES_OF_DAY: { id: TimeOfDay; label: string }[] = [
   { id: 'night', label: 'Night' }
 ];
 
+const parseDate = (val: any): Date | null => {
+  if (val === undefined || val === null) return null;
+  if (typeof val === 'number') {
+    return new Date(val < 10000000000 ? val * 1000 : val);
+  }
+  if (typeof val?.toDate === 'function') {
+    return val.toDate();
+  }
+  if (typeof val?.seconds === 'number') {
+    return new Date(val.seconds * 1000);
+  }
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+// Sortable epoch ms for any createdAt shape parseDate understands. Subtracting
+// raw createdAt values yields NaN once Firestore hands back a Timestamp object.
+const timeValue = (val: any): number => {
+  const d = parseDate(val);
+  return d ? d.getTime() : 0;
+};
+
+const isSameDay = (d1: Date, d2: Date) =>
+  d1.getDate() === d2.getDate() &&
+  d1.getMonth() === d2.getMonth() &&
+  d1.getFullYear() === d2.getFullYear();
+
+// Entries with a missing/unparseable timestamp fall back to today so they stay
+// reachable on today's log instead of appearing on every single date.
+const entryDateOf = (t: Todo, today: Date) => parseDate(t.createdAt) ?? today;
+
+const startOfToday = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [todayStart, setTodayStart] = useState(startOfToday);
   const [inputText, setInputText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputHour, setInputHour] = useState('9');
@@ -51,13 +100,25 @@ export default function App() {
   const [dragOverTime, setDragOverTime] = useState<TimeOfDay | null>(null);
   const [useTime, setUseTime] = useState(false);
 
+  // Context menu state for right click
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    todo: Todo;
+  } | null>(null);
+
+  // Inline edit state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
+
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setLoading(u === null ? false : loading);
+      // Signed out means there is nothing left to fetch. When signed in we stay
+      // in the loading state until the Firestore listener delivers a snapshot.
+      if (!u) setLoading(false);
     });
-    // Handle redirect result for native app auth flow (Capacitor iOS or macOS WKWebView)
     if (typeof (window as any)?.Capacitor !== 'undefined' || (window as any)?.__MACOS_NATIVE__) {
       handleRedirectResult();
     }
@@ -88,16 +149,29 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // Roll `todayStart` over at midnight so a window left open overnight stops
+  // reporting yesterday. Reschedules itself so a DST shift can't strand it.
+  useEffect(() => {
+    let timer: number;
+    const schedule = () => {
+      const nextMidnight = new Date();
+      nextMidnight.setHours(24, 0, 0, 0);
+      timer = window.setTimeout(() => {
+        setTodayStart(startOfToday());
+        schedule();
+      }, nextMidnight.getTime() - Date.now() + 500);
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // Push task data to macOS native menu bar
   useEffect(() => {
     if (!(window as any)?.__MACOS_NATIVE__) return;
-    const today = new Date();
-    const todayTasks = todos.filter(t => {
-      const d = new Date(t.createdAt);
-      return d.getDate() === today.getDate()
-          && d.getMonth() === today.getMonth()
-          && d.getFullYear() === today.getFullYear();
-    });
+    const today = new Date(todayStart);
+    const todayTasks = todos
+      .filter(t => isSameDay(entryDateOf(t, today), today))
+      .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
     try {
       const handler = (window as any).webkit?.messageHandlers?.taskUpdate;
       if (handler) {
@@ -107,7 +181,21 @@ export default function App() {
     } catch (e) {
       console.error("[RapidLog Native] Error posting task update:", e);
     }
-  }, [todos, user]);
+  }, [todos, user, todayStart]);
+
+  // Global listener to close context menu
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('click', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Set default times based on selected section
   React.useEffect(() => {
@@ -126,7 +214,6 @@ export default function App() {
 
   // Auto-flip 12 to PM
   React.useEffect(() => {
-    // Hour 12 should default to PM (noon), not AM (midnight)
     if (inputHour === '12' && inputAMPM === 'AM') {
       setInputAMPM('PM');
     }
@@ -139,17 +226,14 @@ export default function App() {
     const h = parseInt(inputHour, 10);
     const m = parseInt(inputMinute || '0', 10);
     
-    // Convert start to 24h
     let start24 = h % 12;
     if (inputAMPM === 'PM') start24 += 12;
     const startMinutes = start24 * 60 + m;
     
-    // End = start + 1 hour
     const endMinutes = startMinutes + 60;
     let endH24 = Math.floor(endMinutes / 60) % 24;
     const endM = endMinutes % 60;
     
-    // Convert back to 12h
     const endAMPM: 'AM' | 'PM' = endH24 >= 12 ? 'PM' : 'AM';
     let endH12 = endH24 % 12;
     if (endH12 === 0) endH12 = 12;
@@ -159,32 +243,24 @@ export default function App() {
     setEndInputAMPM(endAMPM);
   }, [inputHour, inputMinute, inputAMPM]);
 
-  // Auto-clear time error when user changes any time input
+  // Auto-clear time error
   React.useEffect(() => {
     if (timeError) setTimeError(null);
   }, [inputHour, inputMinute, inputAMPM, endInputHour, endInputMinute, endInputAMPM, selectedTime]);
 
-  const activeTodos = useMemo(() => 
-    todos.filter(t => {
-      const todoDate = new Date(t.createdAt);
-      return !t.completed && 
-             todoDate.getDate() === currentDate.getDate() &&
-             todoDate.getMonth() === currentDate.getMonth() &&
-             todoDate.getFullYear() === currentDate.getFullYear();
-    }).sort((a, b) => a.createdAt - b.createdAt),
-    [todos, currentDate]
-  );
+  const activeTodos = useMemo(() => {
+    const today = new Date(todayStart);
+    return todos
+      .filter(t => !t.completed && isSameDay(entryDateOf(t, today), currentDate))
+      .sort((a, b) => timeValue(a.createdAt) - timeValue(b.createdAt));
+  }, [todos, currentDate, todayStart]);
 
-  const completedTodos = useMemo(() => 
-    todos.filter(t => {
-      const todoDate = new Date(t.createdAt);
-      return t.completed && 
-             todoDate.getDate() === currentDate.getDate() &&
-             todoDate.getMonth() === currentDate.getMonth() &&
-             todoDate.getFullYear() === currentDate.getFullYear();
-    }).sort((a, b) => b.createdAt - a.createdAt),
-    [todos, currentDate]
-  );
+  const completedTodos = useMemo(() => {
+    const today = new Date(todayStart);
+    return todos
+      .filter(t => t.completed && isSameDay(entryDateOf(t, today), currentDate))
+      .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+  }, [todos, currentDate, todayStart]);
 
   const addTodo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,7 +274,6 @@ export default function App() {
       let h = parseInt(inputHour, 10);
       let m = parseInt(inputMinute || '0', 10);
       
-      // Convert to 24h for comparison
       let h24 = h % 12;
       if (inputAMPM === 'PM') h24 += 12;
       const startTimeValue = h24 * 60 + m;
@@ -212,7 +287,6 @@ export default function App() {
         let eh = parseInt(endInputHour, 10);
         const em = parseInt(endInputMinute || '0', 10);
         
-        // Convert to 24h for comparison
         let eh24 = eh % 12;
         if (endInputAMPM === 'PM') eh24 += 12;
         endTimeValue = eh24 * 60 + em;
@@ -227,12 +301,13 @@ export default function App() {
         return;
       }
 
-      if (endTime && endTimeValue < startTimeValue) {
+      // A night entry may legitimately run past midnight (11 PM – 1 AM), so an
+      // end time earlier than the start is only an error outside that section.
+      if (endTime && endTimeValue < startTimeValue && selectedTime !== 'night') {
         setTimeError('End time must be after start time');
         return;
       }
 
-      // Validate time falls within the selected section
       const isMorning = startTimeValue < 720;
       const isAfternoon = startTimeValue >= 720 && startTimeValue < 1020;
       const isNight = startTimeValue >= 1020;
@@ -253,11 +328,10 @@ export default function App() {
     
     const entryDate = new Date(currentDate);
     const now = new Date();
-    // Preserve current time if the date is today
     if (entryDate.toDateString() === now.toDateString()) {
       entryDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
     } else {
-      entryDate.setHours(12, 0, 0, 0); // Default to noon for past/future entries
+      entryDate.setHours(12, 0, 0, 0);
     }
     
     const newTodoData = {
@@ -272,7 +346,6 @@ export default function App() {
       createdAt: entryDate.getTime(),
     };
 
-    // Clear form instantly for responsiveness
     setInputText('');
     if (selectedTime === 'morning') {
       setInputHour('9'); setInputMinute('00'); setInputAMPM('AM');
@@ -289,7 +362,6 @@ export default function App() {
 
     try {
       await addDoc(collection(db, 'todos'), newTodoData);
-      // onSnapshot handles adding the entry to UI
     } catch (error) {
       console.error("Error adding todo:", error);
     }
@@ -298,29 +370,75 @@ export default function App() {
   const toggleTodo = async (id: string) => {
     const todo = todos.find(t => t.id === id);
     if (!todo) return;
-    // Optimistic: toggle instantly
     setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
     try {
       await updateDoc(doc(db, 'todos', id), { completed: !todo.completed });
     } catch (error) {
       console.error("Error toggling todo:", error);
-      // Rollback
       setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: todo.completed } : t));
     }
   };
 
+  const togglePriority = async (id: string) => {
+    const todo = todos.find(t => t.id === id);
+    if (!todo) return;
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, priority: !t.priority } : t));
+    try {
+      await updateDoc(doc(db, 'todos', id), { priority: !todo.priority });
+    } catch (error) {
+      console.error("Error toggling priority:", error);
+      setTodos(prev => prev.map(t => t.id === id ? { ...t, priority: todo.priority } : t));
+    }
+  };
+
+  const updateTodoText = async (id: string, newText: string) => {
+    const trimmed = newText.trim();
+    if (!trimmed) return;
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, text: trimmed } : t));
+    try {
+      await updateDoc(doc(db, 'todos', id), { text: trimmed });
+    } catch (error) {
+      console.error("Error updating todo text:", error);
+    }
+  };
+
+  const changeTimeOfDay = async (id: string, timeOfDay: TimeOfDay) => {
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, timeOfDay } : t));
+    try {
+      await updateDoc(doc(db, 'todos', id), { timeOfDay });
+    } catch (error) {
+      console.error("Error changing time of day:", error);
+    }
+  };
+
   const deleteTodo = async (id: string) => {
-    // Optimistic: remove instantly
     const previousTodos = todos;
     setTodos(prev => prev.filter(t => t.id !== id));
     try {
       await deleteDoc(doc(db, 'todos', id));
     } catch (error) {
       console.error("Error deleting todo:", error);
-      // Rollback
       setTodos(previousTodos);
     }
   };
+
+  // Expose toggle function for macOS native menu bar (placed after toggleTodo declaration)
+  const toggleTodoRef = useRef(toggleTodo);
+  useEffect(() => {
+    toggleTodoRef.current = toggleTodo;
+  }, [toggleTodo]);
+
+  useEffect(() => {
+    (window as any).__toggleTodoFromNative = (id: string) => {
+      console.log(`[RapidLog Native] Toggling todo from native menu bar: ${id}`);
+      if (toggleTodoRef.current) {
+        toggleTodoRef.current(id);
+      }
+    };
+    return () => {
+      delete (window as any).__toggleTodoFromNative;
+    };
+  }, []);
 
   const formattedDate = currentDate.toLocaleDateString(undefined, { 
     weekday: 'long', 
@@ -347,23 +465,16 @@ export default function App() {
     const prevMonthDays = getDaysInMonth(year, month - 1);
     
     const days = [];
-    
-    // Previous month padding
     for (let i = firstDay - 1; i >= 0; i--) {
       days.push({ day: prevMonthDays - i, currentMonth: false, date: new Date(year, month - 1, prevMonthDays - i) });
     }
-    
-    // Current month
     for (let i = 1; i <= daysInMonth; i++) {
       days.push({ day: i, currentMonth: true, date: new Date(year, month, i) });
     }
-    
-    // Next month padding
     const remainingSlots = 42 - days.length;
     for (let i = 1; i <= remainingSlots; i++) {
       days.push({ day: i, currentMonth: false, date: new Date(year, month + 1, i) });
     }
-    
     return days;
   }, [viewDate]);
 
@@ -819,11 +930,20 @@ export default function App() {
                     {timeTodos.map((entry) => (
                       <motion.div
                         key={entry.id}
-                        draggable={!entry.time}
+                        draggable={!entry.time && editingId !== entry.id}
                         onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
-                          if (entry.time) { e.preventDefault(); return; }
+                          if (entry.time || editingId === entry.id) { e.preventDefault(); return; }
                           e.dataTransfer.setData('todoId', entry.id);
                           e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            todo: entry
+                          });
                         }}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1, transition: { duration: 0.25, ease: 'easeOut' } }}
@@ -832,7 +952,7 @@ export default function App() {
                           entry.type === 'note' 
                             ? 'border-l-4 border-neutral-200 pl-6 py-2 ml-4' 
                             : 'gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50'
-                        } ${!entry.time ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        } ${!entry.time && editingId !== entry.id ? 'cursor-grab active:cursor-grabbing' : ''}`}
                       >
                         {entry.type !== 'note' && (
                           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
@@ -854,19 +974,50 @@ export default function App() {
                           </div>
                         )}
                         
-                <span className={`flex-1 text-lg leading-relaxed pt-0.5 ${entry.type === 'note' ? 'italic text-neutral-600' : ''}`}>
-                  {(entry.time || entry.endTime) && (
-                    <span className="text-[10px] text-neutral-400 mr-3 font-bold tabular-nums opacity-60 flex flex-col leading-none mb-1">
-                      {entry.time && <span>{entry.time}</span>}
-                      {entry.endTime && <span className="opacity-50">— {entry.endTime}</span>}
-                    </span>
-                  )}
-                  {entry.text}
-                </span>
-                        
+                        <div className={`flex-1 text-lg leading-relaxed pt-0.5 ${entry.type === 'note' ? 'italic text-neutral-600' : ''}`}>
+                          {(entry.time || entry.endTime) && (
+                            <span className="text-[10px] text-neutral-400 mr-3 font-bold tabular-nums opacity-60 flex flex-col leading-none mb-1">
+                              {entry.time && <span>{entry.time}</span>}
+                              {entry.endTime && <span className="opacity-50">— {entry.endTime}</span>}
+                            </span>
+                          )}
+
+                          {editingId === entry.id ? (
+                            <input
+                              type="text"
+                              value={editingText}
+                              onChange={(e) => setEditingText(e.target.value)}
+                              autoFocus
+                              onKeyDown={async (e) => {
+                                if (e.key === 'Enter') {
+                                  await updateTodoText(entry.id, editingText);
+                                  setEditingId(null);
+                                } else if (e.key === 'Escape') {
+                                  setEditingId(null);
+                                }
+                              }}
+                              onBlur={async () => {
+                                await updateTodoText(entry.id, editingText);
+                                setEditingId(null);
+                              }}
+                              className="bg-transparent border-b-2 border-neutral-900 text-lg font-mono focus:outline-none w-full text-neutral-900"
+                            />
+                          ) : (
+                            <span 
+                              onDoubleClick={() => {
+                                setEditingId(entry.id);
+                                setEditingText(entry.text);
+                              }}
+                            >
+                              {entry.text}
+                            </span>
+                          )}
+                        </div>
+
                         <button
                           onClick={() => deleteTodo(entry.id)}
                           className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-400 transition-all p-1 mt-0.5"
+                          title="Delete entry"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -904,7 +1055,19 @@ export default function App() {
                   className="mt-12 space-y-4"
                 >
                   {completedTodos.map((entry) => (
-                    <div key={entry.id} className="flex items-start gap-4 py-2 px-3 -mx-3 rounded-lg group hover:bg-neutral-50/30">
+                    <div 
+                      key={entry.id} 
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          todo: entry
+                        });
+                      }}
+                      className="flex items-start gap-4 py-2 px-3 -mx-3 rounded-lg group hover:bg-neutral-50/30"
+                    >
                       <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                         {entry.priority && <span className="w-4" />}
                         {!entry.priority && <span className="w-4" />}
@@ -945,6 +1108,93 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* Right Click Context Menu */}
+      <AnimatePresence>
+        {contextMenu && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.1 }}
+            style={{
+              position: 'fixed',
+              left: Math.min(contextMenu.x, window.innerWidth - 200),
+              top: Math.min(contextMenu.y, window.innerHeight - 260),
+              zIndex: 9999
+            }}
+            className="w-48 bg-white border border-neutral-200 shadow-2xl rounded-xl p-1.5 font-mono text-xs text-neutral-800 space-y-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => {
+                setEditingId(contextMenu.todo.id);
+                setEditingText(contextMenu.todo.text);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 font-bold transition-colors"
+            >
+              <Edit3 size={13} className="text-neutral-500" />
+              <span>Edit Entry</span>
+            </button>
+
+            <button
+              onClick={() => {
+                toggleTodo(contextMenu.todo.id);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
+            >
+              <Check size={13} className={contextMenu.todo.completed ? "text-green-600" : "text-neutral-400"} />
+              <span>{contextMenu.todo.completed ? 'Mark Incomplete' : 'Mark Complete'}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                togglePriority(contextMenu.todo.id);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
+            >
+              <Star size={13} fill={contextMenu.todo.priority ? "currentColor" : "none"} className={contextMenu.todo.priority ? "text-amber-500" : "text-neutral-400"} />
+              <span>{contextMenu.todo.priority ? 'Remove Priority' : 'Mark Priority'}</span>
+            </button>
+
+            <div className="h-px bg-neutral-100 my-1" />
+
+            <div className="px-3 py-1 text-[9px] uppercase tracking-widest text-neutral-400 font-black">Move To</div>
+            <div className="grid grid-cols-3 gap-1 px-1">
+              {(['morning', 'noon', 'night'] as TimeOfDay[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    changeTimeOfDay(contextMenu.todo.id, t);
+                    setContextMenu(null);
+                  }}
+                  className={`py-1 text-[10px] uppercase font-bold rounded text-center transition-colors ${
+                    contextMenu.todo.timeOfDay === t ? 'bg-neutral-900 text-white' : 'hover:bg-neutral-100 text-neutral-600'
+                  }`}
+                >
+                  {t === 'morning' ? 'Morn' : t === 'noon' ? 'Noon' : 'Nite'}
+                </button>
+              ))}
+            </div>
+
+            <div className="h-px bg-neutral-100 my-1" />
+
+            <button
+              onClick={() => {
+                deleteTodo(contextMenu.todo.id);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 rounded-lg flex items-center gap-2.5 font-bold transition-colors"
+            >
+              <Trash2 size={13} className="text-red-500" />
+              <span>Delete Entry</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
