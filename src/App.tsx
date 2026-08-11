@@ -137,6 +137,7 @@ export default function App() {
   const [timeError, setTimeError] = useState<string | null>(null);
   const [showEndTimeInput, setShowEndTimeInput] = useState(false);
   const [dragOverTime, setDragOverTime] = useState<TimeOfDay | null>(null);
+  const sectionRefs = useRef<Partial<Record<TimeOfDay, HTMLDivElement | null>>>({});
   const [useTime, setUseTime] = useState(false);
 
   // Context menu state for right click
@@ -248,12 +249,41 @@ export default function App() {
     }
   }, [todos, user, todayStart]);
 
-  // A drag cancelled with Escape, or released outside any section, never fires
-  // dragleave on the section it was over, which would strand the highlight.
+  // The drop highlight is driven from one window-level listener rather than from
+  // each section's own drag events. Per-section handlers only fired as the cursor
+  // crossed a section's edge — events raised over the task rows inside never
+  // reached them — so the outline lit on entry and then never refreshed. dragover
+  // always reaches the window and carries trustworthy coordinates, so hit-testing
+  // the pointer against each section keeps the highlight in step with the cursor.
   useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+
+      const { clientX: x, clientY: y } = e;
+      let active: TimeOfDay | null = null;
+      for (const { id } of TIMES_OF_DAY) {
+        const r = sectionRefs.current[id]?.getBoundingClientRect();
+        if (r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          active = id;
+          break;
+        }
+      }
+      setDragOverTime(prev => (prev === active ? prev : active));
+    };
+
+    // A drag cancelled with Escape, or released outside any section, would
+    // otherwise strand the highlight.
     const clear = () => setDragOverTime(null);
+
+    window.addEventListener('dragover', onDragOver);
     window.addEventListener('dragend', clear);
-    return () => window.removeEventListener('dragend', clear);
+    window.addEventListener('drop', clear);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragend', clear);
+      window.removeEventListener('drop', clear);
+    };
   }, []);
 
   // Global listener to close context menu
@@ -990,24 +1020,15 @@ export default function App() {
           {TIMES_OF_DAY.map((time) => {
             const timeTodos = activeTodos.filter(t => t.timeOfDay === time.id);
             return (
-              <div 
-                key={time.id} 
-                className={`relative transition-all rounded-2xl -mx-4 px-4 py-4 ${
-                  dragOverTime === time.id ? 'bg-neutral-100/50 outline-dashed outline-2 outline-neutral-200 outline-offset-4' : ''
+              <motion.div
+                key={time.id}
+                ref={(el) => { sectionRefs.current[time.id] = el; }}
+                className={`relative transition-colors duration-200 rounded-2xl -mx-4 px-4 py-4 ${
+                  dragOverTime === time.id ? 'bg-neutral-100/60' : ''
                 }`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                  if (dragOverTime !== time.id) setDragOverTime(time.id);
-                }}
-                onDragLeave={(e) => {
-                  // dragleave also fires when the pointer crosses onto a child
-                  // inside the section, which made the highlight flicker on and
-                  // off. relatedTarget is what is being entered, so ignore the
-                  // event while it is still somewhere inside this section.
-                  if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-                  setDragOverTime(null);
-                }}
+                // The highlight itself is owned by the window-level dragover
+                // listener above; these only handle the drop.
+                onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOverTime(null);
@@ -1020,13 +1041,27 @@ export default function App() {
                   changeTimeOfDay(todoId, time.id);
                 }}
               >
+                {/* A real bordered element rather than a CSS outline, and one
+                    that animates. WebKit repaints lazily during a native drag,
+                    so a static outline was applied but never drawn — it showed
+                    once on entry and then went stale. An element animating on
+                    every frame cannot go unpainted. */}
+                {dragOverTime === time.id && (
+                  <motion.div
+                    className="absolute -inset-1 rounded-2xl border-2 border-dashed border-neutral-400 pointer-events-none"
+                    initial={{ opacity: 0.4 }}
+                    animate={{ opacity: [0.6, 1, 0.6] }}
+                    transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                )}
+
                 <div className="flex items-center gap-4 mb-8">
                   <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-500">{time.label}</h3>
                   <div className="h-px flex-1 bg-neutral-100" />
                 </div>
                 
                 <div className="space-y-4">
-                  <AnimatePresence mode="sync" initial={false}>
+                  <AnimatePresence initial={false}>
                     {timeTodos.map((entry) => (
                       <motion.div
                         key={entry.id}
@@ -1047,7 +1082,10 @@ export default function App() {
                         }}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1, transition: { duration: 0.25, ease: 'easeOut' } }}
-                        exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                        // Collapsing height is what closes the gap: siblings and
+                        // the section below follow in normal flow, smoothly and
+                        // with nothing to fall out of step with.
+                        exit={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden', transition: { duration: 0.24, ease: EASE } }}
                         className={`group flex items-start transition-colors ${
                           entry.type === 'note' 
                             ? 'border-l-4 border-neutral-200 pl-6 py-2 ml-4' 
@@ -1127,20 +1165,36 @@ export default function App() {
                     ))}
                   </AnimatePresence>
                   
-                  {timeTodos.length === 0 && (
-                    <div className="pl-9 py-2 text-neutral-200 text-xs italic tracking-widest">
-                      nothing logged
-                    </div>
-                  )}
+                  <AnimatePresence>
+                    {timeTodos.length === 0 && (
+                      <motion.div
+                        key="empty"
+                        initial={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }}
+                        animate={{ opacity: 1, height: 'auto', paddingTop: 8, paddingBottom: 8, transition: { duration: 0.24, ease: EASE } }}
+                        exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.14 } }}
+                        className="pl-9 py-2 text-neutral-200 text-xs italic tracking-widest overflow-hidden"
+                      >
+                        nothing logged
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </motion.div>
 
         {/* Archive Toggle */}
+        <AnimatePresence>
         {completedTodos.length > 0 && (
-          <div className="mt-32 border-t border-neutral-100 pt-10">
+          <motion.div
+            key="archive"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: EASE }}
+            className="mt-32 border-t border-neutral-100 pt-10"
+          >
             <button
               onClick={() => setShowArchive(!showArchive)}
               className="text-[10px] uppercase tracking-[0.3em] font-bold text-neutral-300 hover:text-neutral-900 transition-colors"
@@ -1207,8 +1261,9 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </div>
 
       {/* Right Click Context Menu */}
