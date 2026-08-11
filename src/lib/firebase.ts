@@ -16,6 +16,11 @@ export const db = getFirestore(app);
 
 const googleProvider = new GoogleAuthProvider();
 
+// Always show the account chooser. Signing out clears the Firebase session but
+// not Google's own cookie in the web view, so without this Google silently
+// reuses the last account and there is no way to switch.
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
 // Detect if running inside a native app wrapper (Capacitor iOS or macOS WKWebView)
 const isNative = () => {
   return typeof (window as any)?.Capacitor !== 'undefined'
@@ -40,17 +45,16 @@ export const signInWithGoogle = async () => {
   }
 };
 
-// Handle redirect result (for native iOS auth flow)
+// Handle redirect result (for native iOS auth flow).
+// Errors are rethrown rather than swallowed: a silent failure here looks
+// identical to "never signed in", which is impossible to diagnose from the UI.
 export const handleRedirectResult = async () => {
   try {
     const result = await getRedirectResult(auth);
-    if (result) {
-      return result.user;
-    }
-    return null;
+    return result?.user ?? null;
   } catch (error) {
     console.error("Error handling redirect result:", error);
-    return null;
+    throw error;
   }
 };
 

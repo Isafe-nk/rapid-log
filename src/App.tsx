@@ -134,6 +134,17 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>('');
 
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const startSignIn = async () => {
+    setAuthError(null);
+    try {
+      await signInWithGoogle();
+    } catch (e: any) {
+      setAuthError(e?.code || e?.message || 'Sign in failed');
+    }
+  };
+
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -143,7 +154,9 @@ export default function App() {
       if (!u) setLoading(false);
     });
     if (typeof (window as any)?.Capacitor !== 'undefined' || (window as any)?.__MACOS_NATIVE__) {
-      handleRedirectResult();
+      handleRedirectResult().catch((e: any) => {
+        setAuthError(e?.code || e?.message || 'Sign in failed');
+      });
     }
     return () => unsubscribe();
   }, []);
@@ -512,7 +525,8 @@ export default function App() {
       {/* Auth Screen */}
       <AnimatePresence>
         {!user && !loading && (
-          <motion.div 
+          <motion.div
+            key="auth"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -529,8 +543,8 @@ export default function App() {
               </div>
               
               <div className="space-y-3">
-                <button 
-                  onClick={signInWithGoogle}
+                <button
+                  onClick={startSignIn}
                   className="group w-full flex items-center justify-center gap-4 bg-white border border-neutral-100 py-4 px-6 rounded-2xl shadow-sm hover:shadow-md hover:border-neutral-200 transition-all active:scale-[0.98]"
                 >
                   <div className="bg-neutral-50 p-2 rounded-lg group-hover:bg-neutral-100 transition-colors">
@@ -550,6 +564,12 @@ export default function App() {
                       Download Desktop Mac App
                     </span>
                   </a>
+                )}
+
+                {authError && (
+                  <p className="text-[10px] text-red-500 font-bold tracking-wider pt-1 break-words">
+                    {authError}
+                  </p>
                 )}
               </div>
 
