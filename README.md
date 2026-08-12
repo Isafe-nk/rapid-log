@@ -85,11 +85,52 @@ If sign-in ever fails with `redirect_uri_mismatch`, check that list first.
 
 ## macOS app
 
-```
-cd macos
-xcodebuild -project RapidLog.xcodeproj -scheme RapidLog -configuration Release build
-```
-
 The window and the menu bar popover share one long-lived `WKWebView` owned by
 `AppDelegate`, not by a SwiftUI `WindowGroup` — closing the window would otherwise
 deallocate it and leave the popover stale and inert.
+
+### Building the download
+
+```
+cd macos
+xcodebuild -project RapidLog.xcodeproj -scheme RapidLog -configuration Release \
+  -derivedDataPath build/DerivedData ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
+
+cd ..
+ditto -c -k --keepParent --noextattr --norsrc \
+  macos/build/DerivedData/Build/Products/Release/RapidLog.app \
+  public/RapidLog-macOS.zip
+```
+
+`ARCHS` is not optional. A plain Release build produces an arm64-only binary that
+Intel Macs cannot launch at all.
+
+`ditto --keepParent` is what puts `RapidLog.app` at the root of the archive.
+Zipping from inside the bundle yields a bare `Contents/` folder that is not a
+launchable app. `--noextattr --norsrc` drop the `._` AppleDouble files that
+`com.apple.provenance` would otherwise scatter through the archive; the signature
+survives both. Verify by extracting the zip and running
+`codesign --verify --deep --strict` on the result.
+
+### Signing
+
+The app is **ad-hoc signed** (`Signature=adhoc`, no team identifier), so
+`spctl -a -t exec` rejects it and macOS refuses to open it after download.
+Recipients have to clear the quarantine flag by hand:
+
+```
+xattr -d com.apple.quarantine /Applications/RapidLog.app
+```
+
+Fixing this properly needs the Apple Developer Program: a *Developer ID
+Application* certificate to sign with, then notarization and stapling.
+
+```
+xcodebuild ... CODE_SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" \
+  OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
+xcrun notarytool submit public/RapidLog-macOS.zip --apple-id ... --team-id ... --wait
+xcrun stapler staple macos/build/.../RapidLog.app   # then re-zip the stapled app
+```
+
+Hardened runtime (`--options=runtime`) is required for notarization and is not
+enabled by the ad-hoc build.
