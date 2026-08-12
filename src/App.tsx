@@ -11,7 +11,8 @@ import {
   User, 
   Download,
   Edit3,
-  Check
+  Check,
+  Copy
 } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult, isNative } from './lib/firebase';
@@ -137,6 +138,50 @@ const describeSaveError = (error: any): string => {
   return "Couldn't save that change";
 };
 
+// The Mac app is ad-hoc signed, so macOS quarantines it on download and refuses
+// to open it. Without this instruction the app simply looks broken — and the
+// right-click-to-Open trick no longer works on recent macOS, so give the command
+// that does, on every version.
+const QUARANTINE_CMD = 'xattr -d com.apple.quarantine /Applications/RapidLog.app';
+
+const MacInstallSteps: React.FC = () => {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(QUARANTINE_CMD);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="text-left space-y-2">
+      <p className="text-[9px] uppercase tracking-widest font-black text-neutral-400">
+        macOS will block it on first open
+      </p>
+      <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide">
+        Move <span className="text-neutral-600">RapidLog</span> to Applications, then run this
+        once in Terminal:
+      </p>
+      <button
+        onClick={copy}
+        title="Copy to clipboard"
+        className="group w-full flex items-center gap-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200/70 rounded-xl px-3 py-2 transition-colors"
+      >
+        <code className="flex-1 text-left text-[9px] font-mono text-neutral-500 group-hover:text-neutral-700 break-all leading-relaxed">
+          {QUARANTINE_CMD}
+        </code>
+        <span className="shrink-0 text-neutral-400 group-hover:text-neutral-600">
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+        </span>
+      </button>
+    </div>
+  );
+};
+
 const startOfToday = () => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -196,6 +241,10 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveErrorTimer = useRef<number | null>(null);
+  // Shown after downloading from inside the app, where there is no room for the
+  // standing note the sign-in screen carries. Deliberately not auto-dismissed:
+  // it holds a command to copy.
+  const [macHelp, setMacHelp] = useState(false);
 
   const showNotice = (message: string) => {
     setSaveError(message);
@@ -740,16 +789,21 @@ export default function App() {
                 </button>
 
                 {!(window as any)?.__MACOS_NATIVE__ && (
-                  <a
-                    href="/RapidLog-macOS.zip"
-                    download="RapidLog-macOS.zip"
-                    className="group w-full flex items-center justify-center gap-3 bg-neutral-900 hover:bg-neutral-800 text-white py-3.5 px-6 rounded-2xl shadow-sm transition-all active:scale-[0.98]"
-                  >
-                    <Download size={16} className="text-neutral-300 group-hover:text-white" />
-                    <span className="text-[10px] uppercase tracking-[0.15em] font-black text-neutral-100">
-                      Download Desktop Mac App
-                    </span>
-                  </a>
+                  <>
+                    <a
+                      href="/RapidLog-macOS.zip"
+                      download="RapidLog-macOS.zip"
+                      className="group w-full flex items-center justify-center gap-3 bg-neutral-900 hover:bg-neutral-800 text-white py-3.5 px-6 rounded-2xl shadow-sm transition-all active:scale-[0.98]"
+                    >
+                      <Download size={16} className="text-neutral-300 group-hover:text-white" />
+                      <span className="text-[10px] uppercase tracking-[0.15em] font-black text-neutral-100">
+                        Download Desktop Mac App
+                      </span>
+                    </a>
+                    <div className="pt-1">
+                      <MacInstallSteps />
+                    </div>
+                  </>
                 )}
 
                 {authError && (
@@ -840,6 +894,7 @@ export default function App() {
                     <a
                       href="/RapidLog-macOS.zip"
                       download="RapidLog-macOS.zip"
+                      onClick={() => setMacHelp(true)}
                       className="text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
                       title="Download Desktop Mac App"
                     >
@@ -1422,6 +1477,35 @@ export default function App() {
               >
                 <X size={12} />
               </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Post-download instructions for the unsigned Mac app */}
+      <div className="fixed inset-x-0 bottom-6 z-[140] flex justify-center px-6 pointer-events-none">
+        <AnimatePresence>
+          {macHelp && (
+            <motion.div
+              key="mac-help"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 14 }}
+              transition={{ duration: 0.28, ease: EASE }}
+              className="pointer-events-auto w-full max-w-sm bg-white border border-neutral-200 rounded-2xl shadow-2xl px-5 py-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <MacInstallSteps />
+                </div>
+                <button
+                  onClick={() => setMacHelp(false)}
+                  className="shrink-0 text-neutral-300 hover:text-neutral-600 transition-colors"
+                  title="Dismiss"
+                >
+                  <X size={13} />
+                </button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
