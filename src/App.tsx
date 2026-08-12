@@ -92,6 +92,13 @@ const isSameDay = (d1: Date, d2: Date) =>
 // reachable on today's log instead of appearing on every single date.
 const entryDateOf = (t: Todo, today: Date) => parseDate(t.createdAt) ?? today;
 
+// Positions are animated with transforms rather than height. Height forces the
+// browser to recompute layout every frame and reposition everything below, which
+// is what made section headings stutter; transforms run on the compositor and are
+// interpolated by the browser itself, so they cannot fall out of step.
+// One spring, shared by everything that moves together.
+const GLIDE = { type: 'spring', stiffness: 420, damping: 36, mass: 0.9 } as const;
+
 // Slow-out cubic. Motion decelerates into place rather than stopping dead.
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -102,6 +109,33 @@ const reveal = (shown: boolean, delay: number) => ({
   animate: shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 },
   transition: { duration: 0.55, ease: EASE, delay: shown ? delay : 0 }
 });
+
+// How far back the live subscription reaches by default. Browsing further back
+// lowers it; it never rises, so history you have opened stays loaded.
+const HISTORY_DAYS = 30;
+
+const windowStartFor = (d: Date) => {
+  const s = new Date(d);
+  s.setDate(s.getDate() - HISTORY_DAYS);
+  s.setHours(0, 0, 0, 0);
+  return s.getTime();
+};
+
+// Failures were only ever written to the console, which users never see: a task
+// would appear and then quietly vanish. Turn the codes into something readable.
+const describeSaveError = (error: any): string => {
+  const code = String(error?.code ?? '');
+  if (code.includes('unavailable') || code.includes('deadline')) {
+    return "Can't reach the server — check your connection";
+  }
+  if (code.includes('permission-denied')) {
+    return 'That change was rejected — the text may be too long';
+  }
+  if (code.includes('unauthenticated')) {
+    return 'Signed out — sign in again to save';
+  }
+  return "Couldn't save that change";
+};
 
 const startOfToday = () => {
   const d = new Date();
@@ -117,6 +151,10 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [redirectChecked, setRedirectChecked] = useState(!isNative());
   const [todosLoaded, setTodosLoaded] = useState(false);
+  // The query fetched every task ever created on each launch, then filtered to
+  // one day client-side. It now covers a window, widened on demand.
+  const [loadFromMs, setLoadFromMs] = useState(() => windowStartFor(new Date()));
+  const [bounded, setBounded] = useState(true);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [todayStart, setTodayStart] = useState(startOfToday);
@@ -137,6 +175,10 @@ export default function App() {
   const [timeError, setTimeError] = useState<string | null>(null);
   const [showEndTimeInput, setShowEndTimeInput] = useState(false);
   const [dragOverTime, setDragOverTime] = useState<TimeOfDay | null>(null);
+  // id -> the completed state it is moving toward. A settling row stays in the
+  // list it is currently in, drawn in its new state, so completing a task is
+  // acknowledged instead of the row vanishing on contact.
+  const [settling, setSettling] = useState<Record<string, boolean>>({});
   const sectionRefs = useRef<Partial<Record<TimeOfDay, HTMLDivElement | null>>>({});
   const [useTime, setUseTime] = useState(false);
 
@@ -152,6 +194,23 @@ export default function App() {
   const [editingText, setEditingText] = useState<string>('');
 
   const [authError, setAuthError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveErrorTimer = useRef<number | null>(null);
+
+  const showNotice = (message: string) => {
+    setSaveError(message);
+    if (saveErrorTimer.current) window.clearTimeout(saveErrorTimer.current);
+    saveErrorTimer.current = window.setTimeout(() => setSaveError(null), 6000);
+  };
+
+  const reportSaveError = (error: unknown, context: string) => {
+    console.error(context, error);
+    showNotice(describeSaveError(error));
+  };
+
+  useEffect(() => () => {
+    if (saveErrorTimer.current) window.clearTimeout(saveErrorTimer.current);
+  }, []);
 
   const startSignIn = async () => {
     setAuthError(null);
@@ -187,6 +246,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Reach further back when a date outside the loaded window is opened.
+  useEffect(() => {
+    const needed = windowStartFor(currentDate);
+    setLoadFromMs(prev => (needed < prev ? needed : prev));
+  }, [currentDate]);
+
   // Firestore Listener
   useEffect(() => {
     if (!user) {
@@ -199,7 +264,14 @@ export default function App() {
     // the signed-out branch above would let an empty list render first.
     setTodosLoaded(false);
 
-    const q = query(collection(db, 'todos'), where('userId', '==', user.uid));
+    const q = bounded
+      ? query(
+          collection(db, 'todos'),
+          where('userId', '==', user.uid),
+          where('createdAt', '>=', loadFromMs)
+        )
+      : query(collection(db, 'todos'), where('userId', '==', user.uid));
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedTodos = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -209,11 +281,22 @@ export default function App() {
       setTodosLoaded(true);
     }, (error) => {
       console.error("Firestore error:", error);
+      // The bounded query needs a composite index on (userId, createdAt). If it
+      // is missing or still building the query fails outright, so fall back to
+      // the unbounded one rather than showing an empty log.
+      if (bounded) {
+        console.warn("[RapidLog] Falling back to unbounded query");
+        setBounded(false);
+        return;
+      }
       setTodosLoaded(true);
+      // Both the bounded and unbounded reads failed, so the log is empty for a
+      // reason rather than because there is nothing in it.
+      showNotice("Couldn't load your log — check your connection");
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, loadFromMs, bounded]);
 
   // Roll `todayStart` over at midnight so a window left open overnight stops
   // reporting yesterday. Reschedules itself so a DST shift can't strand it.
@@ -354,16 +437,18 @@ export default function App() {
   const activeTodos = useMemo(() => {
     const today = new Date(todayStart);
     return todos
-      .filter(t => !t.completed && isSameDay(entryDateOf(t, today), currentDate))
+      .filter(t => (settling[t.id] === undefined ? !t.completed : settling[t.id] === true)
+        && isSameDay(entryDateOf(t, today), currentDate))
       .sort(byTimeThenCreated);
-  }, [todos, currentDate, todayStart]);
+  }, [todos, currentDate, todayStart, settling]);
 
   const completedTodos = useMemo(() => {
     const today = new Date(todayStart);
     return todos
-      .filter(t => t.completed && isSameDay(entryDateOf(t, today), currentDate))
+      .filter(t => (settling[t.id] === undefined ? t.completed : settling[t.id] === false)
+        && isSameDay(entryDateOf(t, today), currentDate))
       .sort(byTimeThenCreated);
-  }, [todos, currentDate, todayStart]);
+  }, [todos, currentDate, todayStart, settling]);
 
   const addTodo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -466,19 +551,37 @@ export default function App() {
     try {
       await addDoc(collection(db, 'todos'), newTodoData);
     } catch (error) {
-      console.error("Error adding todo:", error);
+      reportSaveError(error, 'Error adding todo:');
+      // The box was cleared optimistically, so without this the typed text is
+      // simply gone and nothing was ever saved.
+      setInputText(newTodoData.text);
     }
   };
+
+  const clearSettling = (id: string) =>
+    setSettling(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
 
   const toggleTodo = async (id: string) => {
     const todo = todos.find(t => t.id === id);
     if (!todo) return;
-    setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+    // Ignore repeat clicks while a row is mid-animation.
+    if (settling[id] !== undefined) return;
+
+    const target = !todo.completed;
+    setSettling(prev => ({ ...prev, [id]: target }));
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: target } : t));
+    window.setTimeout(() => clearSettling(id), 320);
+
     try {
-      await updateDoc(doc(db, 'todos', id), { completed: !todo.completed });
+      await updateDoc(doc(db, 'todos', id), { completed: target });
     } catch (error) {
-      console.error("Error toggling todo:", error);
+      reportSaveError(error, 'Error toggling todo:');
       setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: todo.completed } : t));
+      clearSettling(id);
     }
   };
 
@@ -489,7 +592,7 @@ export default function App() {
     try {
       await updateDoc(doc(db, 'todos', id), { priority: !todo.priority });
     } catch (error) {
-      console.error("Error toggling priority:", error);
+      reportSaveError(error, 'Error toggling priority:');
       setTodos(prev => prev.map(t => t.id === id ? { ...t, priority: todo.priority } : t));
     }
   };
@@ -497,20 +600,28 @@ export default function App() {
   const updateTodoText = async (id: string, newText: string) => {
     const trimmed = newText.trim();
     if (!trimmed) return;
+    const previous = todos.find(t => t.id === id)?.text;
     setTodos(prev => prev.map(t => t.id === id ? { ...t, text: trimmed } : t));
     try {
       await updateDoc(doc(db, 'todos', id), { text: trimmed });
     } catch (error) {
-      console.error("Error updating todo text:", error);
+      reportSaveError(error, 'Error updating todo text:');
+      if (previous !== undefined) {
+        setTodos(prev => prev.map(t => t.id === id ? { ...t, text: previous } : t));
+      }
     }
   };
 
   const changeTimeOfDay = async (id: string, timeOfDay: TimeOfDay) => {
+    const previous = todos.find(t => t.id === id)?.timeOfDay;
     setTodos(prev => prev.map(t => t.id === id ? { ...t, timeOfDay } : t));
     try {
       await updateDoc(doc(db, 'todos', id), { timeOfDay });
     } catch (error) {
-      console.error("Error changing time of day:", error);
+      reportSaveError(error, 'Error changing time of day:');
+      if (previous) {
+        setTodos(prev => prev.map(t => t.id === id ? { ...t, timeOfDay: previous } : t));
+      }
     }
   };
 
@@ -520,7 +631,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'todos', id));
     } catch (error) {
-      console.error("Error deleting todo:", error);
+      reportSaveError(error, 'Error deleting todo:');
       setTodos(previousTodos);
     }
   };
@@ -835,6 +946,7 @@ export default function App() {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
+                maxLength={1000}
                 ref={inputRef}
                 placeholder="Log..."
                 className="flex-1 bg-transparent border-none py-1 text-lg focus:outline-none placeholder:text-neutral-300"
@@ -1055,16 +1167,21 @@ export default function App() {
                   />
                 )}
 
-                <div className="flex items-center gap-4 mb-8">
+                <motion.div layout="position" transition={{ layout: GLIDE }} className="flex items-center gap-4 mb-8">
                   <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-500">{time.label}</h3>
                   <div className="h-px flex-1 bg-neutral-100" />
-                </div>
+                </motion.div>
                 
-                <div className="space-y-4">
-                  <AnimatePresence initial={false}>
-                    {timeTodos.map((entry) => (
+                <div>
+                  {timeTodos.map((entry) => (
                       <motion.div
                         key={entry.id}
+                        // Position only. Full `layout` also animates size, which
+                        // scales children and visibly squashes the text.
+                        layout="position"
+                        transition={{ layout: GLIDE }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1, transition: { duration: 0.2 } }}
                         draggable={!entry.time && editingId !== entry.id}
                         onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
                           if (entry.time || editingId === entry.id) { e.preventDefault(); return; }
@@ -1080,13 +1197,7 @@ export default function App() {
                             todo: entry
                           });
                         }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1, transition: { duration: 0.25, ease: 'easeOut' } }}
-                        // Collapsing height is what closes the gap: siblings and
-                        // the section below follow in normal flow, smoothly and
-                        // with nothing to fall out of step with.
-                        exit={{ opacity: 0, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0, overflow: 'hidden', transition: { duration: 0.24, ease: EASE } }}
-                        className={`group flex items-start transition-colors ${
+                        className={`group flex items-start mb-4 transition-colors ${
                           entry.type === 'note' 
                             ? 'border-l-4 border-neutral-200 pl-6 py-2 ml-4' 
                             : 'gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50'
@@ -1100,9 +1211,28 @@ export default function App() {
                             {entry.type === 'task' ? (
                               <button
                                 onClick={() => toggleTodo(entry.id)}
-                                className="w-5 h-5 border-2 border-neutral-300 rounded flex items-center justify-center hover:border-neutral-900 transition-colors cursor-pointer mt-0.5"
+                                className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors duration-200 cursor-pointer mt-0.5 ${
+                                  entry.completed
+                                    ? 'border-neutral-900 bg-neutral-900'
+                                    : 'border-neutral-300 hover:border-neutral-900'
+                                }`}
                               >
-                                {/* Checkbox empty */}
+                                {entry.completed && (
+                                  <motion.svg
+                                    viewBox="0 0 24 24"
+                                    className="w-3.5 h-3.5 text-white"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                    initial={{ scale: 0.3, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    // Light damping so it overshoots slightly and
+                                    // lands, rather than simply appearing.
+                                    transition={{ type: 'spring', stiffness: 520, damping: 18 }}
+                                  >
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </motion.svg>
+                                )}
                               </button>
                             ) : (
                               <span className="w-6 flex justify-center text-xl leading-none text-neutral-400">
@@ -1119,6 +1249,7 @@ export default function App() {
                               type="text"
                               value={editingText}
                               onChange={(e) => setEditingText(e.target.value)}
+                              maxLength={1000}
                               autoFocus
                               onKeyDown={async (e) => {
                                 if (e.key === 'Enter') {
@@ -1140,6 +1271,9 @@ export default function App() {
                                 setEditingId(entry.id);
                                 setEditingText(entry.text);
                               }}
+                              className={`transition-colors duration-200 ${
+                                entry.completed ? 'line-through decoration-neutral-300 text-neutral-400' : ''
+                              }`}
                             >
                               {entry.text}
                             </span>
@@ -1162,22 +1296,24 @@ export default function App() {
                           <Trash2 size={14} />
                         </button>
                       </motion.div>
-                    ))}
-                  </AnimatePresence>
+                  ))}
                   
-                  <AnimatePresence>
-                    {timeTodos.length === 0 && (
-                      <motion.div
-                        key="empty"
-                        initial={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }}
-                        animate={{ opacity: 1, height: 'auto', paddingTop: 8, paddingBottom: 8, transition: { duration: 0.24, ease: EASE } }}
-                        exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.14 } }}
-                        className="pl-9 py-2 text-neutral-200 text-xs italic tracking-widest overflow-hidden"
-                      >
-                        nothing logged
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {/* No exit animation, for the same reason the rows have none:
+                      holding it to fade out keeps its height in the section while
+                      a row is already there, so the page is briefly taller and
+                      everything below is pushed down and glides back. */}
+                  {timeTodos.length === 0 && (
+                    <motion.div
+                      key="empty"
+                      layout="position"
+                      transition={{ layout: GLIDE }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1, transition: { duration: 0.2 } }}
+                      className="pl-9 py-2 text-neutral-200 text-xs italic tracking-widest"
+                    >
+                      nothing logged
+                    </motion.div>
+                  )}
                 </div>
               </motion.div>
             );
@@ -1185,14 +1321,13 @@ export default function App() {
         </motion.div>
 
         {/* Archive Toggle */}
-        <AnimatePresence>
         {completedTodos.length > 0 && (
           <motion.div
             key="archive"
+            layout="position"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: EASE }}
+            transition={{ duration: 0.2, ease: EASE, layout: GLIDE }}
             className="mt-32 border-t border-neutral-100 pt-10"
           >
             <button
@@ -1211,8 +1346,10 @@ export default function App() {
                   className="mt-12 space-y-4"
                 >
                   {completedTodos.map((entry) => (
-                    <div 
-                      key={entry.id} 
+                    <motion.div
+                      key={entry.id}
+                      layout="position"
+                      transition={{ layout: GLIDE }}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -1256,13 +1393,37 @@ export default function App() {
                       >
                         <Trash2 size={14} />
                       </button>
-                    </div>
+                    </motion.div>
                   ))}
                 </motion.div>
               )}
             </AnimatePresence>
           </motion.div>
         )}
+      </div>
+
+      {/* Save failure notice */}
+      <div className="fixed inset-x-0 bottom-6 z-[150] flex justify-center px-6 pointer-events-none">
+        <AnimatePresence>
+          {saveError && (
+            <motion.div
+              key="save-error"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 14 }}
+              transition={{ duration: 0.28, ease: EASE }}
+              className="pointer-events-auto flex items-center gap-3 bg-neutral-900 text-neutral-100 text-[11px] font-mono tracking-wide px-4 py-2.5 rounded-full shadow-2xl"
+            >
+              <span>{saveError}</span>
+              <button
+                onClick={() => setSaveError(null)}
+                className="text-neutral-500 hover:text-white transition-colors"
+                title="Dismiss"
+              >
+                <X size={12} />
+              </button>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 
