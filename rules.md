@@ -67,7 +67,7 @@ Every UI adjustment must respect this exact minimalist layout grid:
 
 ## 🔒 3. Strict Database Schema & Security Rules
 
-All operations targeting Cloud Firestore must strictly adhere to `/Users/limky/Downloads/rapid-log/firestore.rules`. Any query or mutation violating these conditions will fail:
+All operations targeting Cloud Firestore must strictly adhere to [`firestore.rules`](firestore.rules). Any query or mutation violating these conditions will fail:
 
 ### A. Document Rules
 * **Authentication Requirement:** All read, list, create, update, and delete calls require a verified session (`request.auth != null`).

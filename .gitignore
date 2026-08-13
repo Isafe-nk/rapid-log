@@ -5,7 +5,10 @@ coverage/
 .DS_Store
 *.log
 .env*
-!.env.example
+
+# Built Mac app and disk images — the release download is built on demand,
+# never committed. See the README for the build and packaging commands.
+*.dmg
 
 # Firebase CLI deploy cache — rewritten on every deploy
 .firebase/

@@ -134,3 +134,16 @@ xcrun stapler staple macos/build/.../RapidLog.app   # then re-zip the stapled ap
 
 Hardened runtime (`--options=runtime`) is required for notarization and is not
 enabled by the ad-hoc build.
+
+## iOS app
+
+`DEVELOPMENT_TEAM` is deliberately blank in `ios/App/App.xcodeproj`, so building
+for a device means selecting your own team under *Signing & Capabilities* first.
+Unlike the macOS shell, the iOS one bundles `dist` (`webDir` in
+[`capacitor.config.ts`](capacitor.config.ts)) rather than loading the deployed
+site, so it ships a frozen snapshot and needs `npm run build && npx cap sync`
+before it reflects any change.
+
+## License
+
+[MIT](LICENSE).
