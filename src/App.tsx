@@ -145,7 +145,9 @@ const describeSaveError = (error: any): string => {
 // that does, on every version.
 const QUARANTINE_CMD = 'xattr -d com.apple.quarantine /Applications/RapidLog.app';
 const REPO_URL = 'https://github.com/Isafe-nk/rapid-log';
-const DOWNLOAD_META = 'Universal · macOS 14+ · 1 MB';
+// One fact, not a spec strip. Size and architecture change nobody's mind;
+// the OS version is the only thing here that stops a download that cannot run.
+const DOWNLOAD_META = 'macOS 14 or later';
 
 const Step: React.FC<{ n: number; children: React.ReactNode }> = ({ n, children }) => (
   <div className="flex gap-3">
@@ -868,10 +870,6 @@ export default function App() {
                     {authError}
                   </p>
                 )}
-              </div>
-
-              <div className="pt-20">
-                <p className="text-[9px] uppercase tracking-widest text-neutral-300 font-bold">Open Source · MIT · No Tracking</p>
               </div>
             </div>
           </motion.div>
