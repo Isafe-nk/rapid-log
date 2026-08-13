@@ -12,7 +12,8 @@ import {
   Download,
   Edit3,
   Check,
-  Copy
+  Copy,
+  Github
 } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult, isNative } from './lib/firebase';
@@ -143,6 +144,17 @@ const describeSaveError = (error: any): string => {
 // right-click-to-Open trick no longer works on recent macOS, so give the command
 // that does, on every version.
 const QUARANTINE_CMD = 'xattr -d com.apple.quarantine /Applications/RapidLog.app';
+const REPO_URL = 'https://github.com/Isafe-nk/rapid-log';
+const DOWNLOAD_META = 'Universal · macOS 14+ · 1 MB';
+
+const Step: React.FC<{ n: number; children: React.ReactNode }> = ({ n, children }) => (
+  <div className="flex gap-3">
+    <span className="shrink-0 w-4 text-[9px] font-black text-neutral-300 tabular-nums pt-0.5">
+      {n}
+    </span>
+    <div className="flex-1 min-w-0 space-y-1.5">{children}</div>
+  </div>
+);
 
 const MacInstallSteps: React.FC = () => {
   const [copied, setCopied] = useState(false);
@@ -153,31 +165,61 @@ const MacInstallSteps: React.FC = () => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setCopied(false);
+      // Clipboard is unavailable in some embedded web views. Say so rather
+      // than leaving the icon unchanged, which reads as nothing happening.
+      window.prompt('Copy this command:', QUARANTINE_CMD);
     }
   };
 
   return (
-    <div className="text-left space-y-2">
+    <div className="text-left space-y-3">
       <p className="text-[9px] uppercase tracking-widest font-black text-neutral-400">
-        macOS will block it on first open
+        After downloading
       </p>
-      <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide">
-        Move <span className="text-neutral-600">RapidLog</span> to Applications, then run this
-        once in Terminal:
+
+      <Step n={1}>
+        <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide">
+          Move <span className="text-neutral-600">RapidLog</span> to your Applications folder.
+        </p>
+      </Step>
+
+      <Step n={2}>
+        <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide">
+          Run this once in Terminal. macOS blocks the app otherwise — it is open source but
+          not signed by Apple.
+        </p>
+        <button
+          onClick={copy}
+          title="Copy to clipboard"
+          className="group w-full flex items-center gap-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200/70 rounded-xl px-3 py-2 transition-colors"
+        >
+          <code className="flex-1 text-left text-[9px] font-mono text-neutral-500 group-hover:text-neutral-700 break-all leading-relaxed">
+            {QUARANTINE_CMD}
+          </code>
+          <span className="shrink-0 text-neutral-400 group-hover:text-neutral-600">
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+          </span>
+        </button>
+      </Step>
+
+      <Step n={3}>
+        <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide">
+          Open it and sign in. Rapid Log lives in your menu bar.
+        </p>
+      </Step>
+
+      <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide pt-1">
+        Or{' '}
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="text-neutral-600 hover:text-neutral-900 underline decoration-neutral-300 underline-offset-4 transition-colors"
+        >
+          build it from source
+        </a>{' '}
+        — a build of your own skips step 2 entirely.
       </p>
-      <button
-        onClick={copy}
-        title="Copy to clipboard"
-        className="group w-full flex items-center gap-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200/70 rounded-xl px-3 py-2 transition-colors"
-      >
-        <code className="flex-1 text-left text-[9px] font-mono text-neutral-500 group-hover:text-neutral-700 break-all leading-relaxed">
-          {QUARANTINE_CMD}
-        </code>
-        <span className="shrink-0 text-neutral-400 group-hover:text-neutral-600">
-          {copied ? <Check size={11} /> : <Copy size={11} />}
-        </span>
-      </button>
     </div>
   );
 };
@@ -767,6 +809,16 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] bg-[#fcfcf9] flex flex-col items-center justify-center p-10"
           >
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="absolute top-6 right-8 flex items-center gap-2 text-[9px] uppercase tracking-widest font-black text-neutral-300 hover:text-neutral-600 transition-colors"
+            >
+              <Github size={12} />
+              Source
+            </a>
+
             <div className="max-w-sm w-full text-center space-y-12">
               <div className="space-y-4">
                 <h2 className="text-xs uppercase tracking-[0.5em] font-black text-neutral-300">Journal</h2>
@@ -800,7 +852,10 @@ export default function App() {
                         Download Desktop Mac App
                       </span>
                     </a>
-                    <div className="pt-1">
+                    <p className="text-[9px] uppercase tracking-widest font-black text-neutral-300">
+                      {DOWNLOAD_META}
+                    </p>
+                    <div className="pt-4">
                       <MacInstallSteps />
                     </div>
                   </>
