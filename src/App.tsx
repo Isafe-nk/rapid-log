@@ -212,7 +212,7 @@ const MacDownloadButton: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col items-center gap-3 font-sans">
+    <div className="flex flex-col items-center gap-3">
       <a
         href={DOWNLOAD_URL}
         download={DOWNLOAD_FILENAME}
@@ -223,8 +223,10 @@ const MacDownloadButton: React.FC = () => {
         <span className={stateLayer(!done)}>
           <AppleMark className="h-5 w-5 -translate-y-[1px] transition-transform duration-300 group-hover:-translate-y-[3px]" />
           <span className="flex flex-col items-start leading-none">
-            <span className="text-sm font-medium tracking-tight">Download for macOS</span>
-            <span className="mt-1 text-[11px] font-normal text-neutral-400">
+            {/* Sized for monospace, not the sans this came from: mono glyphs are
+                wider, so the subline ran almost to the pill's edges. */}
+            <span className="text-[13px] font-medium">Download for macOS</span>
+            <span className="mt-1 text-[10px] font-normal text-neutral-400">
               Universal &middot; Apple Silicon &amp; Intel
             </span>
           </span>
@@ -232,7 +234,7 @@ const MacDownloadButton: React.FC = () => {
 
         <span className={stateLayer(done)}>
           <TickMark className="h-5 w-5" />
-          <span className="text-sm font-medium tracking-tight">Ready to install</span>
+          <span className="text-[13px] font-medium">Ready to install</span>
         </span>
       </a>
 
@@ -1087,7 +1089,35 @@ export default function App() {
         }} 
       />
 
-      <div className="max-w-2xl mx-auto px-10 py-24 relative z-10">
+      {/* A moving strip is hard to stop noticing, which is the point: guest
+          entries are discarded, and a static badge stops registering after a
+          minute. Fixed rather than in flow so it survives scrolling. */}
+      {localOnly && (
+        <div className="fixed top-0 inset-x-0 z-[120] h-7 bg-neutral-900 overflow-hidden flex items-center pointer-events-none">
+          <motion.div
+            className="flex shrink-0 whitespace-nowrap"
+            // Two identical halves scrolled by exactly one half: the second
+            // arrives where the first began, so the seam never shows.
+            animate={{ x: ['0%', '-50%'] }}
+            transition={{ duration: 24, ease: 'linear', repeat: Infinity }}
+          >
+            {[0, 1].map(half => (
+              <div key={half} className="flex shrink-0" aria-hidden={half === 1}>
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="text-[9px] uppercase tracking-[0.3em] font-black text-[#fcfcf9]/70 px-6"
+                  >
+                    Guest mode
+                  </span>
+                ))}
+              </div>
+            ))}
+          </motion.div>
+        </div>
+      )}
+
+      <div className={`max-w-2xl mx-auto px-10 py-24 relative z-10 ${localOnly ? 'pt-28' : ''}`}>
         <motion.header className="mb-16 relative" {...reveal(appVisible, 0.1)}>
           <div className="flex items-start justify-between">
             <div className="flex gap-4 items-start">
@@ -1128,19 +1158,28 @@ export default function App() {
             <div className="flex flex-col items-end gap-3">
               {localOnly && (
                 <div className="flex items-center gap-3">
-                  {/* Deliberately permanent and not dismissible. Everything about
-                      guest mode being honest rests on this staying visible. */}
-                  <span className="text-[9px] uppercase tracking-widest font-black text-amber-600 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
-                    Guest · nothing is saved
-                  </span>
+                  {/* No native guard here, unlike the signed-in row: guest mode
+                      is web-only, so this branch cannot run inside the app. */}
+                  <a
+                    href="/RapidLog-macOS.zip"
+                    download="RapidLog-macOS.zip"
+                    onClick={() => setMacHelp(true)}
+                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                    title="Download Desktop Mac App"
+                  >
+                    <Download size={10} />
+                    Get Mac App
+                  </a>
+                  {/* Deliberately identical to the chip beside it — same tint,
+                      border, padding, icon size and placement — so the pair
+                      reads as one row rather than two competing treatments. */}
                   <button
                     onClick={startSignIn}
-                    className="group flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 px-4 py-1.5 rounded-full transition-colors"
+                    title="Sign in to save these entries"
+                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
                   >
-                    <LogIn size={10} className="text-neutral-300 group-hover:text-white" />
-                    <span className="text-[9px] uppercase tracking-widest font-black text-neutral-100">
-                      Sign in to keep
-                    </span>
+                    <LogIn size={10} />
+                    Sign in to save
                   </button>
                 </div>
               )}
@@ -1151,7 +1190,7 @@ export default function App() {
                       href="/RapidLog-macOS.zip"
                       download="RapidLog-macOS.zip"
                       onClick={() => setMacHelp(true)}
-                      className="text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                      className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
                       title="Download Desktop Mac App"
                     >
                       <Download size={10} />
@@ -1434,6 +1473,7 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
+
           </div>
           <input type="submit" hidden />
         </motion.form>
