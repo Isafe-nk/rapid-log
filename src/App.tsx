@@ -813,10 +813,12 @@ export default function App() {
               href={REPO_URL}
               target="_blank"
               rel="noreferrer"
-              className="absolute top-6 right-8 flex items-center gap-2 text-[9px] uppercase tracking-widest font-black text-neutral-300 hover:text-neutral-600 transition-colors"
+              className="group absolute top-6 right-8 flex items-center gap-2 bg-white border border-neutral-200/70 hover:border-neutral-300 shadow-sm hover:shadow-md px-4 py-2 rounded-full transition-all active:scale-[0.98]"
             >
-              <Github size={12} />
-              Source
+              <Github size={13} className="text-neutral-400 group-hover:text-neutral-900 transition-colors" />
+              <span className="text-[10px] uppercase tracking-[0.15em] font-black text-neutral-600 group-hover:text-neutral-900 transition-colors">
+                View Source
+              </span>
             </a>
 
             <div className="max-w-sm w-full text-center space-y-12">
@@ -869,7 +871,7 @@ export default function App() {
               </div>
 
               <div className="pt-20">
-                <p className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Free Forever • Local Southeast Asia</p>
+                <p className="text-[9px] uppercase tracking-widest text-neutral-300 font-bold">Open Source · MIT · No Tracking</p>
               </div>
             </div>
           </motion.div>
