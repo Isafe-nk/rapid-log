@@ -10,6 +10,5 @@ export interface Todo {
   time: string | null;
   endTime: string | null;
   priority: boolean;
-  dueDate: string | null;
   createdAt: number;
 }

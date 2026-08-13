@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Firebase CLI deploy cache — rewritten on every deploy
+.firebase/
+
+# Xcode per-user window and editor state
+xcuserdata/
+*.xcuserstate

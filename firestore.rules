@@ -17,7 +17,14 @@ service cloud.firestore {
     // --- Todo Entity Validation ---
     function isValidTodo(data) {
       return data.keys().hasAll(['text', 'completed', 'type', 'timeOfDay', 'userId', 'createdAt'])
-        && data.keys().size() <= 9
+        // Named rather than counted. `size() <= 9` was exactly the current field
+        // count, so adding any tenth field failed every write with an opaque
+        // permission error. Adding a field means adding it here too — which now
+        // reads as a deliberate step rather than an invisible ceiling.
+        && data.keys().hasOnly([
+          'text', 'completed', 'type', 'timeOfDay', 'time',
+          'endTime', 'priority', 'userId', 'createdAt'
+        ])
         && data.text is string && data.text.size() <= 1000
         && data.completed is bool
         && data.type in ['task', 'event', 'note']
