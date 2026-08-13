@@ -24,8 +24,9 @@ import {
   onSnapshot, 
   addDoc, 
   updateDoc, 
-  deleteDoc, 
-  doc 
+  deleteDoc,
+  doc,
+  writeBatch
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
@@ -143,6 +144,15 @@ const describeSaveError = (error: any): string => {
 // to open it. Without this instruction the app simply looks broken — and the
 // right-click-to-Open trick no longer works on recent macOS, so give the command
 // that does, on every version.
+// Never written anywhere. It only keeps a guest entry the same shape as a saved
+// one, so importing on sign-in is a field swap rather than a conversion.
+const GUEST_USER_ID = 'guest';
+
+const newLocalId = (): string =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const QUARANTINE_CMD = 'xattr -d com.apple.quarantine /Applications/RapidLog.app';
 const REPO_URL = 'https://github.com/Isafe-nk/rapid-log';
 // One fact, not a spec strip. Size and architecture change nobody's mind;
@@ -240,6 +250,10 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [redirectChecked, setRedirectChecked] = useState(!isNative());
   const [todosLoaded, setTodosLoaded] = useState(false);
+  // Guest entries live in React state and nowhere else — no Firestore, no
+  // localStorage. Every mutation below already updates state first and only
+  // then persists, so guest mode is the same code path with the write skipped.
+  const [isGuest, setIsGuest] = useState(false);
   // The query fetched every task ever created on each launch, then filtered to
   // one day client-side. It now covers a window, widened on demand.
   const [loadFromMs, setLoadFromMs] = useState(() => windowStartFor(new Date()));
@@ -305,14 +319,77 @@ export default function App() {
     if (saveErrorTimer.current) window.clearTimeout(saveErrorTimer.current);
   }, []);
 
+  // The single switch every mutation consults. State updates run either way;
+  // only the write to Firestore is skipped.
+  const localOnly = isGuest && !user;
+
   const startSignIn = async () => {
     setAuthError(null);
     try {
       await signInWithGoogle();
     } catch (e: any) {
-      setAuthError(e?.code || e?.message || 'Sign in failed');
+      const message = e?.code || e?.message || 'Sign in failed';
+      setAuthError(message);
+      // authError only renders on the sign-in screen, which a guest is past.
+      // Without this, failing to sign in from the header does nothing visible.
+      if (isGuest) showNotice(message);
     }
   };
+
+  // Guest mode is web-only. `beforeunload` does not fire reliably when a
+  // WKWebView app quits, so a guest on the Mac would lose entries with no
+  // warning at all — and anyone who downloaded the app has already committed.
+  const guestAvailable = !isNative();
+
+  const pendingGuestTodos = useRef<Todo[]>([]);
+  useEffect(() => {
+    if (localOnly) pendingGuestTodos.current = todos;
+  }, [localOnly, todos]);
+
+  // Guards the import against running twice. StrictMode double-invokes effects
+  // in development, and a second run here would duplicate every entry in a real
+  // account — state alone is too late to stop it, since both runs see the same
+  // committed value.
+  const guestImportStarted = useRef(false);
+
+  // Carry what a guest wrote into the account they just signed into. Adding
+  // only, never merging, so there is no conflict to resolve.
+  useEffect(() => {
+    if (!user || !isGuest || guestImportStarted.current) return;
+    guestImportStarted.current = true;
+    const carried = pendingGuestTodos.current;
+    setIsGuest(false);
+    pendingGuestTodos.current = [];
+    if (!carried.length) return;
+
+    (async () => {
+      try {
+        const batch = writeBatch(db);
+        carried.forEach(({ id, ...entry }) => {
+          batch.set(doc(collection(db, 'todos')), { ...entry, userId: user.uid });
+        });
+        await batch.commit();
+        showNotice(`Saved ${carried.length} ${carried.length === 1 ? 'entry' : 'entries'} to your account`);
+      } catch (error) {
+        // The entries are still on screen, so say what happened rather than
+        // letting them disappear at the next snapshot without explanation.
+        console.error('Error importing guest entries:', error);
+        showNotice("Couldn't save your guest entries — they were not kept");
+      }
+    })();
+  }, [user, isGuest]);
+
+  // A guest closing the tab loses everything. Warn once there is something
+  // to lose; browsers show their own wording, not this string.
+  useEffect(() => {
+    if (!localOnly || todos.length === 0) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [localOnly, todos.length]);
 
   // Auth Listener
   useEffect(() => {
@@ -347,6 +424,13 @@ export default function App() {
 
   // Firestore Listener
   useEffect(() => {
+    // A guest has no server-side log to subscribe to, and clearing `todos` here
+    // would wipe what they have typed on every re-render of this effect.
+    if (isGuest && !user) {
+      setTodosLoaded(true);
+      return;
+    }
+
     if (!user) {
       setTodos([]);
       setTodosLoaded(true);
@@ -389,7 +473,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [user, loadFromMs, bounded]);
+  }, [user, isGuest, loadFromMs, bounded]);
 
   // Roll `todayStart` over at midnight so a window left open overnight stops
   // reporting yesterday. Reschedules itself so a DST shift can't strand it.
@@ -545,7 +629,7 @@ export default function App() {
 
   const addTodo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !user) return;
+    if (!inputText.trim() || (!user && !isGuest)) return;
     setTimeError(null);
 
     let time: string | null = null;
@@ -623,7 +707,9 @@ export default function App() {
       time: time,
       endTime: endTime,
       priority: isPriority,
-      userId: user.uid,
+      // Stamped with the guest's own id so the entries can be written straight
+      // into their account if they sign in later.
+      userId: user?.uid ?? GUEST_USER_ID,
       createdAt: entryDate.getTime(),
     };
 
@@ -640,6 +726,14 @@ export default function App() {
     }
     setShowEndTimeInput(false);
     setIsPriority(false);
+
+    // Every other mutation updates state and then persists. This one relied on
+    // the snapshot to bring the row back, which never arrives for a guest, so
+    // the append happens here instead.
+    if (isGuest && !user) {
+      setTodos(prev => [...prev, { id: newLocalId(), ...newTodoData }]);
+      return;
+    }
 
     try {
       await addDoc(collection(db, 'todos'), newTodoData);
@@ -669,6 +763,7 @@ export default function App() {
     setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: target } : t));
     window.setTimeout(() => clearSettling(id), 320);
 
+    if (localOnly) return;
     try {
       await updateDoc(doc(db, 'todos', id), { completed: target });
     } catch (error) {
@@ -682,6 +777,7 @@ export default function App() {
     const todo = todos.find(t => t.id === id);
     if (!todo) return;
     setTodos(prev => prev.map(t => t.id === id ? { ...t, priority: !t.priority } : t));
+    if (localOnly) return;
     try {
       await updateDoc(doc(db, 'todos', id), { priority: !todo.priority });
     } catch (error) {
@@ -695,6 +791,7 @@ export default function App() {
     if (!trimmed) return;
     const previous = todos.find(t => t.id === id)?.text;
     setTodos(prev => prev.map(t => t.id === id ? { ...t, text: trimmed } : t));
+    if (localOnly) return;
     try {
       await updateDoc(doc(db, 'todos', id), { text: trimmed });
     } catch (error) {
@@ -708,6 +805,7 @@ export default function App() {
   const changeTimeOfDay = async (id: string, timeOfDay: TimeOfDay) => {
     const previous = todos.find(t => t.id === id)?.timeOfDay;
     setTodos(prev => prev.map(t => t.id === id ? { ...t, timeOfDay } : t));
+    if (localOnly) return;
     try {
       await updateDoc(doc(db, 'todos', id), { timeOfDay });
     } catch (error) {
@@ -721,6 +819,7 @@ export default function App() {
   const deleteTodo = async (id: string) => {
     const previousTodos = todos;
     setTodos(prev => prev.filter(t => t.id !== id));
+    if (localOnly) return;
     try {
       await deleteDoc(doc(db, 'todos', id));
     } catch (error) {
@@ -789,7 +888,7 @@ export default function App() {
   // resolved. Only then does a null user actually mean "signed out".
   const authSettled = authReady && redirectChecked;
   const showSplash = !authSettled || (!!user && !todosLoaded);
-  const showAuthScreen = authSettled && !user;
+  const showAuthScreen = authSettled && !user && !isGuest;
   // The app is the visible layer: nothing is covering it.
   const appVisible = !showSplash && !showAuthScreen;
 
@@ -843,6 +942,15 @@ export default function App() {
                   </div>
                   <span className="text-[11px] uppercase tracking-[0.2em] font-black text-neutral-600 group-hover:text-neutral-900">Sign in with Google</span>
                 </button>
+
+                {guestAvailable && (
+                  <button
+                    onClick={() => setIsGuest(true)}
+                    className="w-full text-[10px] uppercase tracking-[0.15em] font-black text-neutral-400 hover:text-neutral-700 transition-colors py-2"
+                  >
+                    Continue as guest
+                  </button>
+                )}
 
                 {!(window as any)?.__MACOS_NATIVE__ && (
                   <>
@@ -943,6 +1051,24 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-col items-end gap-3">
+              {localOnly && (
+                <div className="flex items-center gap-3">
+                  {/* Deliberately permanent and not dismissible. Everything about
+                      guest mode being honest rests on this staying visible. */}
+                  <span className="text-[9px] uppercase tracking-widest font-black text-amber-600 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-full">
+                    Guest · nothing is saved
+                  </span>
+                  <button
+                    onClick={startSignIn}
+                    className="group flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 px-4 py-1.5 rounded-full transition-colors"
+                  >
+                    <LogIn size={10} className="text-neutral-300 group-hover:text-white" />
+                    <span className="text-[9px] uppercase tracking-widest font-black text-neutral-100">
+                      Sign in to keep
+                    </span>
+                  </button>
+                </div>
+              )}
               {user && (
                 <div className="flex items-center gap-3">
                   {!(window as any)?.__MACOS_NATIVE__ && (
