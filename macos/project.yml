@@ -14,15 +14,12 @@ targets:
   RapidLog:
     type: application
     platform: macOS
+    # The app loads the deployed web app over the network, so it bundles no web
+    # assets. A RapidLog/public folder used to be declared here and was never
+    # actually built into the product — it only carried stale copies of old
+    # bundles that could never be served.
     sources:
       - path: RapidLog
-        excludes:
-          - "public"
-          - "public/**"
-    resources:
-      - path: RapidLog/public
-        type: folder
-        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.limky.rapidlog
