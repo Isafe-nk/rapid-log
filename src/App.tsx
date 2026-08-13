@@ -424,10 +424,11 @@ export default function App() {
     }
   };
 
-  // Guest mode is web-only. `beforeunload` does not fire reliably when a
-  // WKWebView app quits, so a guest on the Mac would lose entries with no
-  // warning at all — and anyone who downloaded the app has already committed.
-  const guestAvailable = !isNative();
+  // Available everywhere, including the Mac app. One caveat there: WKWebView
+  // does not present `beforeunload` unless the host implements the JS panel
+  // delegate, so quitting the app skips the warning the browser gives. The
+  // marquee is the only thing standing between a guest and losing the lot.
+  const guestAvailable = true;
 
   const pendingGuestTodos = useRef<Todo[]>([]);
   useEffect(() => {
@@ -1158,18 +1159,18 @@ export default function App() {
             <div className="flex flex-col items-end gap-3">
               {localOnly && (
                 <div className="flex items-center gap-3">
-                  {/* No native guard here, unlike the signed-in row: guest mode
-                      is web-only, so this branch cannot run inside the app. */}
-                  <a
-                    href="/RapidLog-macOS.zip"
-                    download="RapidLog-macOS.zip"
-                    onClick={() => setMacHelp(true)}
-                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
-                    title="Download Desktop Mac App"
-                  >
-                    <Download size={10} />
-                    Get Mac App
-                  </a>
+                  {!(window as any)?.__MACOS_NATIVE__ && (
+                    <a
+                      href="/RapidLog-macOS.zip"
+                      download="RapidLog-macOS.zip"
+                      onClick={() => setMacHelp(true)}
+                      className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                      title="Download Desktop Mac App"
+                    >
+                      <Download size={10} />
+                      Get Mac App
+                    </a>
+                  )}
                   {/* Deliberately identical to the chip beside it — same tint,
                       border, padding, icon size and placement — so the pair
                       reads as one row rather than two competing treatments. */}
