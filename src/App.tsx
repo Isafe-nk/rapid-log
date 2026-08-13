@@ -935,7 +935,23 @@ export default function App() {
     };
   }, []);
 
-  const formattedDate = currentDate.toLocaleDateString(undefined, { 
+  // Queried by the macOS app before it quits. WKWebView never presents
+  // `beforeunload`, so this is the only thing standing between a Mac guest and
+  // losing everything to a stray Cmd-Q. Read through a ref so the exposed
+  // function is installed once and still sees current state.
+  const unsavedGuestCount = useRef(0);
+  useEffect(() => {
+    unsavedGuestCount.current = localOnly ? todos.length : 0;
+  }, [localOnly, todos.length]);
+
+  useEffect(() => {
+    (window as any).__unsavedGuestCount = () => unsavedGuestCount.current;
+    return () => {
+      delete (window as any).__unsavedGuestCount;
+    };
+  }, []);
+
+  const formattedDate = currentDate.toLocaleDateString(undefined, {
     weekday: 'long', 
     year: 'numeric', 
     month: 'long', 

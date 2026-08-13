@@ -64,6 +64,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Guest entries exist only in the web view's memory. WKWebView does not
+    /// present `beforeunload` unless the host implements the JS panel delegate,
+    /// so without this a guest loses everything to Cmd-Q with no warning — the
+    /// one thing a browser gives them for free.
+    ///
+    /// Answering means asking the page, which is async, hence `.terminateLater`.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        webEngine.webView.evaluateJavaScript(
+            "window.__unsavedGuestCount ? window.__unsavedGuestCount() : 0"
+        ) { result, error in
+            if let error = error {
+                // Never trap someone in an app because a script failed.
+                print("[RapidLog] Could not read guest state, quitting: \(error)")
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            let count = (result as? NSNumber)?.intValue ?? 0
+            guard count > 0 else {
+                NSApp.reply(toApplicationShouldTerminate: true)
+                return
+            }
+
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = count == 1
+                ? "Discard 1 unsaved entry?"
+                : "Discard \(count) unsaved entries?"
+            alert.informativeText = """
+                You are using Rapid Log as a guest, so nothing has been saved. \
+                Quitting discards these entries permanently. Sign in first to keep them.
+                """
+            alert.addButton(withTitle: "Quit and Discard")
+            alert.addButton(withTitle: "Cancel")
+
+            let discard = alert.runModal() == .alertFirstButtonReturn
+            NSApp.reply(toApplicationShouldTerminate: discard)
+        }
+
+        return .terminateLater
+    }
+
     /// Clicking the Dock icon brings the window back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showMainWindow()
