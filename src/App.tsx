@@ -148,6 +148,39 @@ const describeSaveError = (error: any): string => {
 // one, so importing on sign-in is a field swap rather than a conversion.
 const GUEST_USER_ID = 'guest';
 
+// The only thing guest mode ever writes to disk, and only for the duration of a
+// redirect sign-in. An abandoned sign-in would otherwise leave entries sitting
+// here indefinitely, so anything older than the trip could plausibly take is
+// discarded rather than turning up in a later session.
+const GUEST_HANDOFF_KEY = 'rapidlog.guest-handoff';
+const GUEST_HANDOFF_TTL = 10 * 60 * 1000;
+
+const clearGuestHandoff = () => {
+  try {
+    localStorage.removeItem(GUEST_HANDOFF_KEY);
+  } catch {
+    /* storage unavailable; nothing was written either */
+  }
+};
+
+const readGuestHandoff = (): Todo[] => {
+  try {
+    const raw = localStorage.getItem(GUEST_HANDOFF_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.todos)) return [];
+    if (Date.now() - Number(parsed.at) > GUEST_HANDOFF_TTL) {
+      clearGuestHandoff();
+      return [];
+    }
+    return parsed.todos as Todo[];
+  } catch (error) {
+    console.error('Could not read stashed guest entries:', error);
+    clearGuestHandoff();
+    return [];
+  }
+};
+
 const newLocalId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -413,6 +446,20 @@ export default function App() {
 
   const startSignIn = async () => {
     setAuthError(null);
+    // Native signs in by redirect, which navigates the whole page to Google and
+    // back. React state does not survive that, so the entries have to be handed
+    // across the trip. Written only at this moment, never during normal guest
+    // use, and cleared the instant it is read.
+    if (localOnly && todos.length) {
+      try {
+        localStorage.setItem(
+          GUEST_HANDOFF_KEY,
+          JSON.stringify({ at: Date.now(), todos })
+        );
+      } catch (error) {
+        console.error('Could not stash guest entries for sign-in:', error);
+      }
+    }
     try {
       await signInWithGoogle();
     } catch (e: any) {
@@ -421,6 +468,11 @@ export default function App() {
       // authError only renders on the sign-in screen, which a guest is past.
       // Without this, failing to sign in from the header does nothing visible.
       if (isGuest) showNotice(message);
+      try {
+        localStorage.removeItem(GUEST_HANDOFF_KEY);
+      } catch {
+        /* nothing to undo */
+      }
     }
   };
 
@@ -444,11 +496,25 @@ export default function App() {
   // Carry what a guest wrote into the account they just signed into. Adding
   // only, never merging, so there is no conflict to resolve.
   useEffect(() => {
-    if (!user || !isGuest || guestImportStarted.current) return;
+    // Signing out arms it again: sign in, log out, continue as guest and sign
+    // in a second time, and the latch would otherwise still be closed from the
+    // first import and quietly drop the second batch.
+    if (!user) {
+      guestImportStarted.current = false;
+      return;
+    }
+    if (guestImportStarted.current) return;
+
+    // Popup sign-in keeps the page alive, so the entries are still in memory.
+    // Redirect sign-in does not, so fall back to what was stashed before leaving.
+    let carried = pendingGuestTodos.current;
+    if (!carried.length) carried = readGuestHandoff();
+    if (!isGuest && !carried.length) return;
+
     guestImportStarted.current = true;
-    const carried = pendingGuestTodos.current;
     setIsGuest(false);
     pendingGuestTodos.current = [];
+    clearGuestHandoff();
     if (!carried.length) return;
 
     (async () => {
