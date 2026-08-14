@@ -1,148 +1,95 @@
+<div align="center">
+
 # Rapid Log
 
-A minimal daily log. Each day is a single page split into **Morning**, **Noon** and
-**Night**, and every line is a task, an event or a note. Entries can carry a start
-and end time, be starred as a priority, be dragged between sections, and are
-archived rather than deleted when completed.
+**A daily log that fits on one page.**
 
-One codebase, three shells:
+Each day is split into Morning, Noon and Night. Every line is a task, an event
+or a note. Nothing else.
 
-| Shell | What it is |
-|---|---|
-| **Web** | React + Vite + Tailwind, deployed to Firebase Hosting |
-| **macOS** | SwiftUI app wrapping a `WKWebView`, with a menu bar popover showing today at a glance |
-| **iOS** | Capacitor wrapper around the same web app |
+[**Open the web app**](https://to-do-rapidlog.web.app) &nbsp;·&nbsp;
+[**Download for macOS**](https://to-do-rapidlog.web.app/RapidLog-macOS.zip)
 
-The web app is the source of truth. The macOS and iOS shells load the deployed URL
-in a web view, so **a code change does not reach them until it is deployed** —
-rebuilding in Xcode is not enough.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Data
+</div>
 
-There is no server. The browser talks to Firestore directly, so the whole backend
-is three things:
+<!--
+  Screenshot goes here. Two images, captured from the Release build:
+    1. The app window with a populated day.
+    2. The menu bar popover open, showing today at a glance.
+  Commit them to docs/images/ and reference them below.
+-->
 
-- **`todos` collection** — one document per entry, with `text`, `completed`,
-  `type`, `timeOfDay`, `time`, `endTime`, `priority`, `userId` and `createdAt`
-  (epoch ms). Every field is validated by the security rules.
-- **[`firestore.rules`](firestore.rules)** — default deny, ownership checks on
-  every operation, and per-field validation. The permitted fields are named
-  explicitly, so **adding a field to an entry means adding it here too** or every
-  write will fail with a permission error.
-- **[`firestore.indexes.json`](firestore.indexes.json)** — a composite index on
-  `(userId, createdAt)`. The app subscribes to a 30-day window rather than every
-  task ever created; opening an older date widens it. That query cannot run
-  without this index.
+## What it does
 
-## Run locally
+- **One page per day.** Morning, Noon and Night. No projects, no boards, no tags.
+- **Three kinds of line.** A task, an event or a note — switched beside the input
+  before you write.
+- **Times when you want them.** Any entry can carry a start and an end time, and
+  entries sort by time, then by when you added them.
+- **Priority.** Star a line to mark it. It stays where it is; the star is there
+  to catch your eye, not to reorder your day.
+- **Drag between sections.** Move something from Morning to Night by dragging it.
+- **Completed entries are archived, not deleted.** The day stays readable; the
+  record stays intact.
+- **Menu bar access on macOS.** Today's entries without switching windows.
+- **Guest mode.** Use it without an account. Nothing is saved, and signing in
+  later brings whatever you wrote with you.
 
-Requires Node.js.
+## Install
 
-```
-npm install
-npm run dev
-```
+**Web** — nothing to install: [to-do-rapidlog.web.app](https://to-do-rapidlog.web.app).
+Works everywhere, but there is no menu bar.
 
-## Deploy
+**macOS 14 or later** — [download the app](https://to-do-rapidlog.web.app/RapidLog-macOS.zip)
+(universal, Apple Silicon and Intel), then:
 
-```
-npm run build
-npx firebase deploy --only hosting
-```
+1. Move `RapidLog.app` to your Applications folder.
+2. Run this once, because the app is not notarized yet:
 
-Rules and indexes deploy separately, and an index must finish building before the
-query that needs it will run:
+   ```
+   xattr -d com.apple.quarantine /Applications/RapidLog.app
+   ```
 
-```
-npx firebase deploy --only firestore:rules
-npx firebase deploy --only firestore:indexes
-```
+3. Open it. Left-click the dot in the menu bar for today at a glance;
+   right-click for a menu with the full window, reload and quit.
 
-`index.html` is served with `no-cache` and hashed assets with `immutable` (see
-[`firebase.json`](firebase.json)). Without that, a cached `index.html` keeps
-resolving the previous bundle — which Firebase still serves — and the app silently
-runs old code after a deploy.
+Without step 2 macOS refuses to open it and offers only *Move to Trash*. It is
+not a warning you can click past. See [Signing](CONTRIBUTING.md#signing) for why,
+and [build it yourself](CONTRIBUTING.md#the-macos-app) if you would rather not
+run a downloaded binary.
 
-## Google sign-in
+**iOS** — no build is published. The Xcode project is in [`ios/`](ios) and you
+can build it with your own signing team.
 
-`authDomain` in [`firebase-applet-config.json`](firebase-applet-config.json) points
-at `to-do-rapidlog.web.app`, the domain the app is served from, rather than the
-default `to-do-rapidlog.firebaseapp.com`. Sign-in fails in the macOS web view
-otherwise: completing the flow means reading the result across sites, and WebKit
-blocks that, so the app returns from Google still signed out.
+## Your data
 
-**This depends on a setting that is not in this repo.** The Google Cloud OAuth
-client must list both handlers under *Authorized redirect URIs*:
+There is no Rapid Log server. The app talks to Firestore directly, and every
+entry is stored under your own account and readable only by you — enforced by
+[`firestore.rules`](firestore.rules), which denies by default and checks
+ownership on every read and write.
 
-```
-https://to-do-rapidlog.web.app/__/auth/handler           required by authDomain above
-https://to-do-rapidlog.firebaseapp.com/__/auth/handler   keep, so authDomain can be reverted
-```
+There is no analytics, no tracking and no third party besides Google (Firebase
+for storage, Google Sign-In for your account).
 
-Console: https://console.cloud.google.com/apis/credentials?project=to-do-rapidlog
+In guest mode nothing leaves the tab. Entries live in memory, are gone when you
+close it, and the macOS app warns you before quitting with unsaved ones.
 
-If sign-in ever fails with `redirect_uri_mismatch`, check that list first.
+## Built with
 
-## macOS app
+React 19, Vite, Tailwind and Framer Motion, on Firebase Auth, Firestore and
+Hosting. The macOS app is SwiftUI wrapping a `WKWebView`; the iOS app is
+Capacitor. One web app, three shells.
 
-The window and the menu bar popover share one long-lived `WKWebView` owned by
-`AppDelegate`, not by a SwiftUI `WindowGroup` — closing the window would otherwise
-deallocate it and leave the popover stale and inert.
+## Contributing
 
-### Building the download
+Bug reports, feature requests and pull requests are all welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to run it locally, how the pieces fit
+together, and how to build and deploy each shell.
 
-```
-cd macos
-xcodebuild -project RapidLog.xcodeproj -scheme RapidLog -configuration Release \
-  -derivedDataPath build/DerivedData ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
-
-cd ..
-ditto -c -k --keepParent --noextattr --norsrc \
-  macos/build/DerivedData/Build/Products/Release/RapidLog.app \
-  public/RapidLog-macOS.zip
-```
-
-`ARCHS` is not optional. A plain Release build produces an arm64-only binary that
-Intel Macs cannot launch at all.
-
-`ditto --keepParent` is what puts `RapidLog.app` at the root of the archive.
-Zipping from inside the bundle yields a bare `Contents/` folder that is not a
-launchable app. `--noextattr --norsrc` drop the `._` AppleDouble files that
-`com.apple.provenance` would otherwise scatter through the archive; the signature
-survives both. Verify by extracting the zip and running
-`codesign --verify --deep --strict` on the result.
-
-### Signing
-
-The app is **ad-hoc signed** (`Signature=adhoc`, no team identifier), so
-`spctl -a -t exec` rejects it and macOS refuses to open it after download.
-Recipients have to clear the quarantine flag by hand:
-
-```
-xattr -d com.apple.quarantine /Applications/RapidLog.app
-```
-
-Fixing this properly needs the Apple Developer Program: a *Developer ID
-Application* certificate to sign with, then notarization and stapling.
-
-```
-xcodebuild ... CODE_SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" \
-  OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
-xcrun notarytool submit public/RapidLog-macOS.zip --apple-id ... --team-id ... --wait
-xcrun stapler staple macos/build/.../RapidLog.app   # then re-zip the stapled app
-```
-
-Hardened runtime (`--options=runtime`) is required for notarization and is not
-enabled by the ad-hoc build.
-
-## iOS app
-
-`DEVELOPMENT_TEAM` is deliberately blank in `ios/App/App.xcodeproj`, so building
-for a device means selecting your own team under *Signing & Capabilities* first.
-Unlike the macOS shell, the iOS one bundles `dist` (`webDir` in
-[`capacitor.config.ts`](capacitor.config.ts)) rather than loading the deployed
-site, so it ships a frozen snapshot and needs `npm run build && npx cap sync`
-before it reflects any change.
+Security issues: please read [SECURITY.md](SECURITY.md) rather than opening a
+public issue.
 
 ## License
 
