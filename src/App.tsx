@@ -181,6 +181,19 @@ const readGuestHandoff = (): Todo[] => {
   }
 };
 
+// Mirrors isValidTodo in firestore.rules. Handoff entries come back off disk as
+// untrusted JSON, and the rules reject a batch whole rather than per document.
+const isWritableEntry = (e: any): boolean =>
+  !!e &&
+  typeof e.text === 'string' && e.text.length > 0 && e.text.length <= 1000 &&
+  typeof e.completed === 'boolean' &&
+  ['task', 'event', 'note'].includes(e.type) &&
+  ['morning', 'noon', 'night'].includes(e.timeOfDay) &&
+  typeof e.createdAt === 'number' && Number.isFinite(e.createdAt) &&
+  (e.time == null || typeof e.time === 'string') &&
+  (e.endTime == null || typeof e.endTime === 'string') &&
+  (e.priority == null || typeof e.priority === 'boolean');
+
 const newLocalId = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -514,20 +527,29 @@ export default function App() {
     guestImportStarted.current = true;
     setIsGuest(false);
     pendingGuestTodos.current = [];
-    clearGuestHandoff();
-    if (!carried.length) return;
+
+    // A batch is rejected whole, so one malformed entry would take every other
+    // entry down with it. Drop anything that would not pass the rules instead.
+    const writable = carried.filter(isWritableEntry);
+    if (!writable.length) {
+      clearGuestHandoff();
+      return;
+    }
 
     (async () => {
       try {
         const batch = writeBatch(db);
-        carried.forEach(({ id, ...entry }) => {
+        writable.forEach(({ id, ...entry }) => {
           batch.set(doc(collection(db, 'todos')), { ...entry, userId: user.uid });
         });
         await batch.commit();
-        showNotice(`Saved ${carried.length} ${carried.length === 1 ? 'entry' : 'entries'} to your account`);
+        // Only now. Clearing before the commit threw away the one copy that
+        // survives a redirect, leaving a failure with nothing to retry from.
+        clearGuestHandoff();
+        showNotice(`Saved ${writable.length} ${writable.length === 1 ? 'entry' : 'entries'} to your account`);
       } catch (error) {
-        // The entries are still on screen, so say what happened rather than
-        // letting them disappear at the next snapshot without explanation.
+        // The stash is deliberately left in place: the batch is atomic, so
+        // nothing was half-written and signing in again can retry cleanly.
         console.error('Error importing guest entries:', error);
         showNotice("Couldn't save your guest entries — they were not kept");
       }
