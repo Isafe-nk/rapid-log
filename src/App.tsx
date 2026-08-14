@@ -506,6 +506,18 @@ export default function App() {
   // committed value.
   const guestImportStarted = useRef(false);
 
+  // The listener waits on this so it does not race the import. A ref, because
+  // the listener effect runs in the same commit and would not see a state
+  // update yet; the counter beside it is what re-runs the listener afterwards.
+  const importInFlight = useRef(false);
+  const [importSettled, setImportSettled] = useState(0);
+
+  // Read by the listener without subscribing it to every keystroke.
+  const todoCount = useRef(0);
+  useEffect(() => {
+    todoCount.current = todos.length;
+  }, [todos.length]);
+
   // Carry what a guest wrote into the account they just signed into. Adding
   // only, never merging, so there is no conflict to resolve.
   useEffect(() => {
@@ -536,6 +548,12 @@ export default function App() {
       return;
     }
 
+    // Held before the first await so the listener, which runs in this same
+    // commit, sees it. Subscribing in parallel meant the first snapshot landed
+    // before the batch did: the account's entries replaced the guest's, and the
+    // guest's returned only on a second snapshot — arriving in three waves.
+    importInFlight.current = true;
+
     (async () => {
       try {
         const batch = writeBatch(db);
@@ -552,6 +570,10 @@ export default function App() {
         // nothing was half-written and signing in again can retry cleanly.
         console.error('Error importing guest entries:', error);
         showNotice("Couldn't save your guest entries — they were not kept");
+      } finally {
+        // Always released. A failed import must not leave the log unsubscribed.
+        importInFlight.current = false;
+        setImportSettled(n => n + 1);
       }
     })();
   }, [user, isGuest]);
@@ -614,9 +636,15 @@ export default function App() {
       return;
     }
 
+    // Guest entries are still being written. Subscribing now would show the
+    // account without them, then add them a snapshot later.
+    if (importInFlight.current) return;
+
     // Waiting on this user's first snapshot. Without resetting, the flag set by
-    // the signed-out branch above would let an empty list render first.
-    setTodosLoaded(false);
+    // the signed-out branch above would let an empty list render first — but
+    // only when there is nothing on screen. Coming from guest mode there is,
+    // and blanking it to the splash is a worse wait than leaving it up.
+    if (todoCount.current === 0) setTodosLoaded(false);
 
     const q = bounded
       ? query(
@@ -650,7 +678,8 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [user, isGuest, loadFromMs, bounded]);
+    // `importSettled` is what brings the effect back once the batch is done.
+  }, [user, isGuest, loadFromMs, bounded, importSettled]);
 
   // Roll `todayStart` over at midnight so a window left open overnight stops
   // reporting yesterday. Reschedules itself so a DST shift can't strand it.
@@ -1103,17 +1132,22 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] bg-[#fcfcf9] flex flex-col items-center justify-center p-10"
           >
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="group absolute top-6 right-8 flex items-center gap-2 bg-white border border-neutral-200/70 hover:border-neutral-300 shadow-sm hover:shadow-md px-4 py-2 rounded-full transition-all active:scale-[0.98]"
-            >
-              <Github size={13} className="text-neutral-400 group-hover:text-neutral-900 transition-colors" />
-              <span className="text-[10px] uppercase tracking-[0.15em] font-black text-neutral-600 group-hover:text-neutral-900 transition-colors">
-                View Source
-              </span>
-            </a>
+            {/* Web only. The app's popup handler loads new windows into the same
+                web view, so following this inside the app would navigate Rapid
+                Log to GitHub with no way back. */}
+            {!(window as any)?.__MACOS_NATIVE__ && (
+              <a
+                href={REPO_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="group absolute top-6 right-8 flex items-center gap-2 bg-white border border-neutral-200/70 hover:border-neutral-300 shadow-sm hover:shadow-md px-4 py-2 rounded-full transition-all active:scale-[0.98]"
+              >
+                <Github size={13} className="text-neutral-400 group-hover:text-neutral-900 transition-colors" />
+                <span className="text-[10px] uppercase tracking-[0.15em] font-black text-neutral-600 group-hover:text-neutral-900 transition-colors">
+                  View Source
+                </span>
+              </a>
+            )}
 
             <div className="max-w-sm w-full text-center space-y-12">
               <div className="space-y-4">
@@ -1268,23 +1302,26 @@ export default function App() {
                       href="/RapidLog-macOS.zip"
                       download="RapidLog-macOS.zip"
                       onClick={() => setMacHelp(true)}
-                      className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                      // Amber is the priority star elsewhere, borrowed here only
+                      // for a hover. A transient highlight dilutes the accent far
+                      // less than a badge sitting on screen permanently would.
+                      className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-400 hover:text-amber-500 transition-colors flex items-center gap-2 pr-1"
                       title="Download Desktop Mac App"
                     >
-                      <Download size={10} />
                       Get Mac App
+                      <Download size={10} />
                     </a>
                   )}
-                  {/* Deliberately identical to the chip beside it — same tint,
-                      border, padding, icon size and placement — so the pair
-                      reads as one row rather than two competing treatments. */}
+                  {/* Styled as Logout is on the signed-in row — plain text and a
+                      trailing icon, no chip. Two filled pills side by side made
+                      the header heavier than anything in the log below it. */}
                   <button
                     onClick={startSignIn}
                     title="Sign in to save these entries"
-                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-400 hover:text-neutral-900 transition-colors flex items-center gap-2 pr-1"
                   >
-                    <LogIn size={10} />
                     Sign in to save
+                    <LogIn size={10} />
                   </button>
                 </div>
               )}
@@ -1295,11 +1332,14 @@ export default function App() {
                       href="/RapidLog-macOS.zip"
                       download="RapidLog-macOS.zip"
                       onClick={() => setMacHelp(true)}
-                      className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-500 hover:text-neutral-900 transition-colors flex items-center gap-1.5 bg-neutral-100/70 border border-neutral-200/50 px-3 py-1.5 rounded-full"
+                      // Amber is the priority star elsewhere, borrowed here only
+                      // for a hover. A transient highlight dilutes the accent far
+                      // less than a badge sitting on screen permanently would.
+                      className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-400 hover:text-amber-500 transition-colors flex items-center gap-2 pr-1"
                       title="Download Desktop Mac App"
                     >
-                      <Download size={10} />
                       Get Mac App
+                      <Download size={10} />
                     </a>
                   )}
                   <div className="flex items-center gap-3 bg-neutral-50/50 p-1 pr-3 rounded-full border border-neutral-100/50 group">
