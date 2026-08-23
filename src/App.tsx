@@ -1238,7 +1238,9 @@ export default function App() {
             // Two identical halves scrolled by exactly one half: the second
             // arrives where the first began, so the seam never shows.
             animate={{ x: ['0%', '-50%'] }}
-            transition={{ duration: 24, ease: 'linear', repeat: Infinity }}
+            // Slow enough to read as a drift rather than a scroll. The strip has
+            // to stay noticeable without pulling the eye off the log.
+            transition={{ duration: 180, ease: 'linear', repeat: Infinity }}
           >
             {[0, 1].map(half => (
               <div key={half} className="flex shrink-0" aria-hidden={half === 1}>
