@@ -41,6 +41,86 @@ const TIMES_OF_DAY: { id: TimeOfDay; label: string }[] = [
   { id: 'night', label: 'Night' }
 ];
 
+// Each section owns a window of the clock, so the hour list can be bounded to
+// it and AM/PM follows from the section rather than being asked for. The bounds
+// are the ones addTodo used to check after the fact: morning is any AM hour,
+// noon is 12:00–4:59 PM, night is 5:00 PM onward.
+const SECTION_CLOCK: Record<TimeOfDay, { hours: number[]; meridiem: 'AM' | 'PM'; defaultHour: number }> = {
+  morning: { hours: [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], meridiem: 'AM', defaultHour: 9 },
+  noon: { hours: [12, 1, 2, 3, 4], meridiem: 'PM', defaultHour: 12 },
+  night: { hours: [5, 6, 7, 8, 9, 10, 11], meridiem: 'PM', defaultHour: 7 }
+};
+
+const MINUTE_OPTIONS = ['00', '15', '30', '45'];
+
+const ENTRY_TYPES: EntryType[] = ['task', 'event', 'note'];
+
+// Square, circle and bar are one box at three sizes, so the composer's bullet
+// travels between them rather than being swapped out. Two details make it work:
+// the radius stays in px (8px on a 16px box is a circle) because px-to-% does
+// not interpolate, and the fill is alpha-zero grey rather than `transparent` so
+// it fades through grey instead of through black.
+const GLYPH_SHAPE: Record<EntryType, {
+  width: number; height: number; borderRadius: number; borderWidth: number;
+  backgroundColor: string; marginLeft: number;
+}> = {
+  task: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
+  event: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
+  note: { width: 2, height: 22, borderRadius: 1, borderWidth: 0, backgroundColor: 'rgba(229,229,229,1)', marginLeft: 8 }
+};
+
+// A little overshoot, so starring a line reads as a press rather than a repaint.
+const POP = [0.34, 1.56, 0.64, 1] as const;
+const TIME_IDS: TimeOfDay[] = ['morning', 'noon', 'night'];
+
+// Both composer rows are the same control: every option on screen, one tap to
+// take it, and one ink mark that travels to the one you took.
+const OPTION_LABEL = 'block text-[11px] uppercase tracking-[0.26em] -mr-[0.26em] transition-colors';
+const OPTION_ON = 'font-black text-neutral-900';
+const OPTION_OFF = 'font-bold text-[#c4c4bd] hover:text-[#8f8f85]';
+const CLOCK_SELECT = 'bg-transparent text-[10px] w-7 focus:outline-none font-bold appearance-none text-center cursor-pointer hover:text-neutral-600 transition-colors';
+const CLOCK_FIELD = 'flex items-center bg-neutral-50/50 rounded-md px-1.5 py-1 gap-1 border border-neutral-100 transition-colors hover:border-neutral-200 hover:bg-neutral-100/50';
+const CLOCK_LABEL = 'text-[9px] uppercase tracking-widest font-black text-[#c4c4bd]';
+const QUIET_LINK = 'text-[9px] tracking-wider text-neutral-400 hover:text-neutral-600 border-b border-[#ebebe6] pb-0.5 transition-colors';
+const HOVER_LINK = 'text-[9px] tracking-wider text-neutral-400 hover:text-neutral-600 border-b border-transparent hover:border-[#ebebe6] pb-0.5 transition-colors';
+
+// In a radiogroup the arrows move and select in one step, so the arrow lands on
+// the option rather than merely pointing at it.
+const stepRow = <T,>(e: React.KeyboardEvent, items: T[], current: T, set: (v: T) => void) => {
+  const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1
+    : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1
+    : 0;
+  if (!step) return;
+  e.preventDefault();
+  set(items[(items.indexOf(current) + step + items.length) % items.length]);
+};
+
+// An end time is held as a span from the start, never as a clock value of its
+// own. Held that way it cannot land on or before the start, so a night entry
+// running past midnight needs no special case and neither error can occur.
+const END_STEP = 15;
+const END_MAX = 480;
+
+const startMinutesOf = (section: TimeOfDay, hour: string, minute: string) => {
+  const h = parseInt(hour, 10) % 12;
+  return (h + (SECTION_CLOCK[section].meridiem === 'PM' ? 12 : 0)) * 60 + parseInt(minute || '0', 10);
+};
+
+// The same shape `minutesOfDay` reads back, so stored entries keep one format.
+const clockLabel = (fromMidnight: number) => {
+  const t = ((fromMidnight % 1440) + 1440) % 1440;
+  const h24 = Math.floor(t / 60);
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}:${(t % 60).toString().padStart(2, '0')} ${h24 >= 12 ? 'PM' : 'AM'}`;
+};
+
+const spanLabel = (minutes: number) => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} hr ${m}` : `${h} hr`;
+};
+
 const parseDate = (val: any): Date | null => {
   if (val === undefined || val === null) return null;
   if (typeof val === 'number') {
@@ -399,24 +479,23 @@ export default function App() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputHour, setInputHour] = useState('9');
   const [inputMinute, setInputMinute] = useState('00');
-  const [inputAMPM, setInputAMPM] = useState<'AM' | 'PM'>('AM');
-  const [endInputHour, setEndInputHour] = useState('10');
-  const [endInputMinute, setEndInputMinute] = useState('00');
-  const [endInputAMPM, setEndInputAMPM] = useState<'AM' | 'PM'>('AM');
+  // Minutes past the start, or null for no end at all. Replaces the three
+  // separate end-time fields, which could express a time before the start.
+  const [endOffset, setEndOffset] = useState<number | null>(null);
   const [selectedType, setSelectedType] = useState<EntryType>('task');
   const [selectedTime, setSelectedTime] = useState<TimeOfDay>('morning');
   const [isPriority, setIsPriority] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
-  const [timeError, setTimeError] = useState<string | null>(null);
-  const [showEndTimeInput, setShowEndTimeInput] = useState(false);
   const [dragOverTime, setDragOverTime] = useState<TimeOfDay | null>(null);
   // id -> the completed state it is moving toward. A settling row stays in the
   // list it is currently in, drawn in its new state, so completing a task is
   // acknowledged instead of the row vanishing on contact.
   const [settling, setSettling] = useState<Record<string, boolean>>({});
   const sectionRefs = useRef<Partial<Record<TimeOfDay, HTMLDivElement | null>>>({});
+  // Composer option buttons, so an arrow key can carry focus with the selection.
+  const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [useTime, setUseTime] = useState(false);
 
   // Context menu state for right click
@@ -767,55 +846,66 @@ export default function App() {
   }, []);
 
   // Set default times based on selected section
+  // A time belongs to its section, so changing section resets the clock to the
+  // new one and drops any end rather than carrying a stale value across.
   React.useEffect(() => {
-    if (selectedTime === 'morning') {
-      setInputHour('9'); setInputMinute('00'); setInputAMPM('AM');
-      setEndInputHour('10'); setEndInputMinute('00'); setEndInputAMPM('AM');
-    } else if (selectedTime === 'noon') {
-      setInputHour('12'); setInputMinute('00'); setInputAMPM('PM');
-      setEndInputHour('1'); setEndInputMinute('00'); setEndInputAMPM('PM');
-    } else {
-      setInputHour('7'); setInputMinute('00'); setInputAMPM('PM');
-      setEndInputHour('8'); setEndInputMinute('00'); setEndInputAMPM('PM');
-    }
-    setShowEndTimeInput(false);
+    setInputHour(String(SECTION_CLOCK[selectedTime].defaultHour));
+    setInputMinute('00');
+    setEndOffset(null);
   }, [selectedTime]);
 
-  // Auto-flip 12 to PM
+  // A note is not scheduled. Clearing rather than hiding matters: hidden state
+  // would come back on the way out of note.
   React.useEffect(() => {
-    if (inputHour === '12' && inputAMPM === 'AM') {
-      setInputAMPM('PM');
+    if (selectedType === 'note') {
+      setUseTime(false);
+      setEndOffset(null);
     }
-  }, [inputHour]);
+  }, [selectedType]);
 
-  // Auto-adjust end time to be 1 hour after start time
+  // A half-composed time should not follow you to another day.
   React.useEffect(() => {
-    if (!inputHour) return;
-    
-    const h = parseInt(inputHour, 10);
-    const m = parseInt(inputMinute || '0', 10);
-    
-    let start24 = h % 12;
-    if (inputAMPM === 'PM') start24 += 12;
-    const startMinutes = start24 * 60 + m;
-    
-    const endMinutes = startMinutes + 60;
-    let endH24 = Math.floor(endMinutes / 60) % 24;
-    const endM = endMinutes % 60;
-    
-    const endAMPM: 'AM' | 'PM' = endH24 >= 12 ? 'PM' : 'AM';
-    let endH12 = endH24 % 12;
-    if (endH12 === 0) endH12 = 12;
-    
-    setEndInputHour(String(endH12));
-    setEndInputMinute(endM.toString().padStart(2, '0'));
-    setEndInputAMPM(endAMPM);
-  }, [inputHour, inputMinute, inputAMPM]);
+    setUseTime(false);
+    setEndOffset(null);
+  }, [currentDate]);
 
-  // Auto-clear time error
-  React.useEffect(() => {
-    if (timeError) setTimeError(null);
-  }, [inputHour, inputMinute, inputAMPM, endInputHour, endInputMinute, endInputAMPM, selectedTime]);
+  // Where the entry starts, and every end the picker is allowed to offer. Both
+  // follow from the section, so neither can leave it.
+  const startMinutes = useMemo(
+    () => startMinutesOf(selectedTime, inputHour, inputMinute),
+    [selectedTime, inputHour, inputMinute]
+  );
+
+  const endChoices = useMemo(() => {
+    const out: { offset: number; hour: number; minute: string; meridiem: string }[] = [];
+    for (let d = END_STEP; d <= END_MAX; d += END_STEP) {
+      const t = (startMinutes + d) % 1440;
+      const h24 = Math.floor(t / 60);
+      out.push({
+        offset: d,
+        hour: h24 % 12 === 0 ? 12 : h24 % 12,
+        minute: (t % 60).toString().padStart(2, '0'),
+        meridiem: h24 >= 12 ? 'PM' : 'AM'
+      });
+    }
+    return out;
+  }, [startMinutes]);
+
+  const endChoice = endChoices.find(c => c.offset === endOffset) ?? null;
+  const endHours = endChoices
+    .map(c => c.hour)
+    .filter((h, i, all) => all.indexOf(h) === i);
+
+  // Keep the same minute past the hour when the hour changes, when that minute
+  // exists in the hour being moved to.
+  const pickEndHour = (hour: number) => {
+    const inHour = endChoices.filter(c => c.hour === hour);
+    // An hour with no offers cannot come from the list this reads, but reaching
+    // into an empty array would throw rather than simply doing nothing.
+    if (!inHour.length) return;
+    const same = inHour.find(c => c.minute === endChoice?.minute);
+    setEndOffset((same ?? inHour[0]).offset);
+  };
 
   const activeTodos = useMemo(() => {
     const today = new Date(todayStart);
@@ -836,67 +926,19 @@ export default function App() {
   const addTodo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || (!user && !isGuest)) return;
-    setTimeError(null);
 
     let time: string | null = null;
     let endTime: string | null = null;
 
-    if (useTime) {
-      let h = parseInt(inputHour, 10);
-      let m = parseInt(inputMinute || '0', 10);
-      
-      let h24 = h % 12;
-      if (inputAMPM === 'PM') h24 += 12;
-      const startTimeValue = h24 * 60 + m;
-
-      const displayHours = h || 12;
-      const displayMinutes = m.toString().padStart(2, '0');
-      time = `${displayHours}:${displayMinutes} ${inputAMPM}`;
-
-      let endTimeValue = 0;
-      if (showEndTimeInput && endInputHour) {
-        let eh = parseInt(endInputHour, 10);
-        const em = parseInt(endInputMinute || '0', 10);
-        
-        let eh24 = eh % 12;
-        if (endInputAMPM === 'PM') eh24 += 12;
-        endTimeValue = eh24 * 60 + em;
-
-        const endDisplayHours = eh || 12;
-        const endDisplayMinutes = em.toString().padStart(2, '0');
-        endTime = `${endDisplayHours}:${endDisplayMinutes} ${endInputAMPM}`;
-      }
-
-      if (endTime && endTimeValue === startTimeValue) {
-        setTimeError('Start and end time cannot be the same');
-        return;
-      }
-
-      // A night entry may legitimately run past midnight (11 PM – 1 AM), so an
-      // end time earlier than the start is only an error outside that section.
-      if (endTime && endTimeValue < startTimeValue && selectedTime !== 'night') {
-        setTimeError('End time must be after start time');
-        return;
-      }
-
-      const isMorning = startTimeValue < 720;
-      const isAfternoon = startTimeValue >= 720 && startTimeValue < 1020;
-      const isNight = startTimeValue >= 1020;
-
-      if (selectedTime === 'morning' && !isMorning) {
-        setTimeError('Morning entries should be before 12:00 PM');
-        return;
-      }
-      if (selectedTime === 'noon' && !isAfternoon) {
-        setTimeError('Noon entries should be between 12:00 – 5:00 PM');
-        return;
-      }
-      if (selectedTime === 'night' && !isNight) {
-        setTimeError('Night entries should be after 5:00 PM');
-        return;
-      }
+    // No validation left to do. The hour list holds only this section's hours,
+    // AM/PM comes from the section, and the end is a span from the start — so
+    // "outside the section", "same as the start" and "before the start" are all
+    // unreachable rather than rejected. A night entry crossing midnight falls
+    // out of the arithmetic instead of needing an exemption.
+    if (useTime && selectedType !== 'note') {
+      time = clockLabel(startMinutes);
+      if (endOffset !== null) endTime = clockLabel(startMinutes + endOffset);
     }
-    
     const entryDate = new Date(currentDate);
     const now = new Date();
     if (entryDate.toDateString() === now.toDateString()) {
@@ -920,17 +962,11 @@ export default function App() {
     };
 
     setInputText('');
-    if (selectedTime === 'morning') {
-      setInputHour('9'); setInputMinute('00'); setInputAMPM('AM');
-      setEndInputHour('10'); setEndInputMinute('00'); setEndInputAMPM('AM');
-    } else if (selectedTime === 'noon') {
-      setInputHour('12'); setInputMinute('00'); setInputAMPM('PM');
-      setEndInputHour('1'); setEndInputMinute('00'); setEndInputAMPM('PM');
-    } else {
-      setInputHour('7'); setInputMinute('00'); setInputAMPM('PM');
-      setEndInputHour('8'); setEndInputMinute('00'); setEndInputAMPM('PM');
-    }
-    setShowEndTimeInput(false);
+    // Back to this section's default, and no end. `useTime` deliberately stays
+    // as it was, so several timed entries can be logged in a row.
+    setInputHour(String(SECTION_CLOCK[selectedTime].defaultHour));
+    setInputMinute('00');
+    setEndOffset(null);
     setIsPriority(false);
 
     // Every other mutation updates state and then persists. This one relied on
@@ -1238,7 +1274,9 @@ export default function App() {
             // Two identical halves scrolled by exactly one half: the second
             // arrives where the first began, so the seam never shows.
             animate={{ x: ['0%', '-50%'] }}
-            transition={{ duration: 24, ease: 'linear', repeat: Infinity }}
+            // Slow enough to read as a drift rather than a scroll. The strip has
+            // to stay noticeable without pulling the eye off the log.
+            transition={{ duration: 180, ease: 'linear', repeat: Infinity }}
           >
             {[0, 1].map(half => (
               <div key={half} className="flex shrink-0" aria-hidden={half === 1}>
@@ -1428,14 +1466,13 @@ export default function App() {
         <motion.form onSubmit={addTodo} className="mb-20" {...reveal(appVisible, 0.18)}>
           <div className="flex flex-col gap-6 border-l-2 border-neutral-100 pl-6 py-2">
             <div className="flex items-center gap-3">
-              <span className="text-xl w-6 flex justify-center text-neutral-400">
-                {selectedType === 'task' ? (
-                  <div className="w-5 h-5 border-2 border-neutral-200 rounded" />
-                ) : selectedType === 'event' ? (
-                  BULLETS.event
-                ) : (
-                  <div className="h-full w-0.5 bg-neutral-200 ml-2" />
-                )}
+              <span className="w-6 flex justify-center flex-shrink-0">
+                <motion.span
+                  className="block box-border border-solid border-neutral-200"
+                  initial={false}
+                  animate={GLYPH_SHAPE[selectedType]}
+                  transition={{ duration: 0.4, ease: EASE }}
+                />
               </span>
               <input
                 type="text"
@@ -1448,177 +1485,231 @@ export default function App() {
               />
             </div>
             
-            <div className="space-y-4 pl-9">
-              <div className="flex items-center justify-between">
-                <div className="flex gap-4">
-                  {(['task', 'event', 'note'] as EntryType[]).map((type) => (
+            <div className="pl-9">
+              {/* Type and section are peers: both always on screen, one tap
+                  each, and one ink mark per row that slides to the word taken.
+                  The mark is a shared layoutId, so it travels between options
+                  instead of blinking on somewhere else. */}
+              <div role="radiogroup" aria-label="Entry type" className="flex items-center justify-between">
+                <div className="flex gap-[26px]">
+                  {ENTRY_TYPES.map((type) => (
                     <button
                       key={type}
                       type="button"
+                      role="radio"
+                      aria-checked={selectedType === type}
+                      tabIndex={selectedType === type ? 0 : -1}
+                      ref={(el) => { rowRefs.current[`type-${type}`] = el; }}
+                      onKeyDown={(e) => stepRow(e, ENTRY_TYPES, selectedType, (next) => {
+                        setSelectedType(next);
+                        rowRefs.current[`type-${next}`]?.focus();
+                      })}
                       onClick={() => { setSelectedType(type); inputRef.current?.focus(); }}
-                      className={`text-[10px] uppercase tracking-widest font-bold transition-all ${
-                        selectedType === type ? 'text-neutral-900 underline underline-offset-4' : 'text-neutral-300 hover:text-neutral-500'
-                      }`}
+                      className="relative py-3 focus:outline-none"
                     >
-                      {type}
+                      <span className={`${OPTION_LABEL} ${selectedType === type ? OPTION_ON : OPTION_OFF}`}>
+                        {type}
+                      </span>
+                      {selectedType === type && (
+                        <motion.span
+                          layoutId="composer-type-mark"
+                          transition={{ duration: 0.42, ease: EASE }}
+                          className="absolute left-0 right-0 bottom-3 h-[2px] bg-neutral-900"
+                        />
+                      )}
                     </button>
                   ))}
                 </div>
                 <button
                   type="button"
                   onClick={() => { setIsPriority(!isPriority); inputRef.current?.focus(); }}
-                  className={`transition-colors py-1 px-2 -mr-2 ${isPriority ? 'text-amber-500' : 'text-neutral-200'}`}
+                  className={`transition-colors py-3 px-2 -mr-2 ${isPriority ? 'text-amber-500' : 'text-neutral-200'}`}
                 >
-                  <Star size={14} fill={isPriority ? "currentColor" : "none"} />
+                  <motion.span
+                    className="block"
+                    initial={false}
+                    animate={{ scale: isPriority ? 1.14 : 1 }}
+                    transition={{ duration: 0.34, ease: POP }}
+                  >
+                    <Star size={14} fill={isPriority ? "currentColor" : "none"} />
+                  </motion.span>
                 </button>
               </div>
 
-              <div className="flex flex-col gap-3 border-t border-neutral-50 pt-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-4">
-                    {TIMES_OF_DAY.map((time) => (
-                      <button
-                        key={time.id}
-                        type="button"
-                        onClick={() => { setSelectedTime(time.id); inputRef.current?.focus(); }}
-                        className={`text-[9px] uppercase tracking-[0.2em] font-bold py-1 px-3 rounded-full border transition-all ${
-                          selectedTime === time.id 
-                            ? 'bg-neutral-900 text-[#fcfcf9] border-neutral-900 shadow-sm' 
-                            : 'text-neutral-300 border-neutral-100 hover:text-neutral-500 hover:border-neutral-300'
-                        }`}
-                      >
-                        {time.label}
-                      </button>
-                    ))}
-                  </div>
+              {/* Does the separating so neither row has to shout. neutral-50
+                  is invisible against the cream page, so this one is a shade up. */}
+              <div className="h-px bg-neutral-100" />
+
+              <div role="radiogroup" aria-label="Time of day" className="flex gap-[26px]">
+                {TIMES_OF_DAY.map((time) => (
                   <button
+                    key={time.id}
                     type="button"
-                    onClick={() => { setUseTime(!useTime); setShowEndTimeInput(false); inputRef.current?.focus(); }}
-                    className="text-[9px] text-neutral-300 hover:text-neutral-500 transition-colors tracking-wider"
+                    role="radio"
+                    aria-checked={selectedTime === time.id}
+                    tabIndex={selectedTime === time.id ? 0 : -1}
+                    ref={(el) => { rowRefs.current[`section-${time.id}`] = el; }}
+                    onKeyDown={(e) => stepRow(e, TIME_IDS, selectedTime, (next) => {
+                      setSelectedTime(next);
+                      rowRefs.current[`section-${next}`]?.focus();
+                    })}
+                    onClick={() => { setSelectedTime(time.id); inputRef.current?.focus(); }}
+                    className="relative py-3 focus:outline-none"
                   >
-                    {useTime ? '− time' : '+ time'}
+                    <span className={`${OPTION_LABEL} ${selectedTime === time.id ? OPTION_ON : OPTION_OFF}`}>
+                      {time.label}
+                    </span>
+                    {selectedTime === time.id && (
+                      <motion.span
+                        layoutId="composer-section-mark"
+                        transition={{ duration: 0.42, ease: EASE }}
+                        className="absolute left-0 right-0 bottom-3 h-[2px] bg-neutral-900"
+                      />
+                    )}
                   </button>
-                </div>
+                ))}
+              </div>
 
-                <AnimatePresence>
-                  {useTime && (
+              {/* Morning, noon and night is how you say when. A clock is the
+                  exception, so it is asked for rather than offered — and never
+                  offered at all for a note. */}
+              {/* A note is offered no clock, so the area leaves rather than
+                  blinking out — and comes back the same way. */}
+              <AnimatePresence initial={false}>
+                {selectedType !== 'note' && (
+                  <motion.div
+                    key="time-area"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2, ease: EASE }}
+                  >
+                <AnimatePresence mode="wait" initial={false}>
+                  {!useTime ? (
                     <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden"
+                      key="add-time"
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.22, ease: EASE }}
+                      className="pt-3"
                     >
-                      <div className="flex flex-col gap-2 pt-1">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowEndTimeInput(!showEndTimeInput)}
-                            className="text-[9px] text-neutral-300 hover:text-neutral-500 transition-colors tracking-wider mr-auto"
-                          >
-                            {showEndTimeInput ? '− end time' : '+ end time'}
-                          </button>
-                          <span className="text-[9px] uppercase tracking-widest font-black text-neutral-200 mr-1">Start</span>
-                          <div className="flex items-center gap-1">
-                            <div className="flex items-center bg-neutral-50/50 rounded-md px-1.5 py-1 gap-1 border border-neutral-100">
-                              <select
-                                value={inputHour}
-                                onChange={(e) => setInputHour(e.target.value)}
-                                className="bg-transparent text-[10px] w-7 focus:outline-none font-bold appearance-none text-center cursor-pointer hover:text-neutral-600 transition-colors"
-                              >
-                                {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
-                                  <option key={h} value={h}>{h}</option>
-                                ))}
-                              </select>
-                              <span className="text-[10px] text-neutral-300 font-bold">:</span>
-                              <select
-                                value={inputMinute}
-                                onChange={(e) => setInputMinute(e.target.value)}
-                                className="bg-transparent text-[10px] w-7 focus:outline-none font-bold appearance-none text-center cursor-pointer hover:text-neutral-600 transition-colors"
-                              >
-                                {['00', '15', '30', '45'].map((m) => (
-                                  <option key={m} value={m}>
-                                    {m}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setInputAMPM(inputAMPM === 'AM' ? 'PM' : 'AM')}
-                              className="text-[9px] font-black uppercase tracking-tighter bg-neutral-100 px-1.5 py-1 rounded text-neutral-400 hover:text-neutral-900 transition-colors min-w-[28px]"
-                            >
-                              {inputAMPM}
-                            </button>
-                          </div>
-                        </div>
+                      <button
+                        type="button"
+                        onClick={() => { setUseTime(true); inputRef.current?.focus(); }}
+                        className={QUIET_LINK}
+                      >
+                        + add a time
+                      </button>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="clock"
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.26, ease: EASE }}
+                      className="flex items-center gap-2 flex-wrap pt-3"
+                    >
+                      <span className={CLOCK_LABEL}>{endChoice ? 'From' : 'At'}</span>
 
-                        <AnimatePresence>
-                          {showEndTimeInput && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              className="overflow-hidden"
-                            >
-                              <div className="flex items-center justify-end gap-2 pt-1 border-t border-dashed border-neutral-50">
-                                <span className="text-[9px] uppercase tracking-widest font-black text-neutral-200 mr-1">End</span>
-                                <div className="flex items-center gap-1">
-                                  <div className="flex items-center bg-neutral-50/50 rounded-md px-1.5 py-1 gap-1 border border-neutral-100">
-                                    <select
-                                      value={endInputHour}
-                                      onChange={(e) => setEndInputHour(e.target.value)}
-                                      className="bg-transparent text-[10px] w-7 focus:outline-none font-bold appearance-none text-center cursor-pointer hover:text-neutral-600 transition-colors"
-                                    >
-                                      {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
-                                        <option key={h} value={h}>{h}</option>
-                                      ))}
-                                    </select>
-                                    <span className="text-[10px] text-neutral-300 font-bold">:</span>
-                                    <select
-                                      value={endInputMinute}
-                                      onChange={(e) => setEndInputMinute(e.target.value)}
-                                      className="bg-transparent text-[10px] w-7 focus:outline-none font-bold appearance-none text-center cursor-pointer hover:text-neutral-600 transition-colors"
-                                    >
-                                      {['00', '15', '30', '45'].map((m) => (
-                                        <option key={m} value={m}>
-                                          {m}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEndInputAMPM(endInputAMPM === 'AM' ? 'PM' : 'AM')}
-                                    className="text-[9px] font-black uppercase tracking-tighter bg-neutral-100 px-1.5 py-1 rounded text-neutral-400 hover:text-neutral-900 transition-colors min-w-[28px]"
-                                  >
-                                    {endInputAMPM}
-                                  </button>
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                      <div className={CLOCK_FIELD}>
+                        <select
+                          value={inputHour}
+                          onChange={(e) => setInputHour(e.target.value)}
+                          className={CLOCK_SELECT}
+                        >
+                          {SECTION_CLOCK[selectedTime].hours.map((h) => (
+                            <option key={h} value={h}>{h}</option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-neutral-300 font-bold">:</span>
+                        <select
+                          value={inputMinute}
+                          onChange={(e) => setInputMinute(e.target.value)}
+                          className={CLOCK_SELECT}
+                        >
+                          {MINUTE_OPTIONS.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                        {/* Derived from the section, so it cannot disagree with it. */}
+                        <span className="text-[9px] font-bold uppercase text-neutral-400 ml-0.5">
+                          {SECTION_CLOCK[selectedTime].meridiem}
+                        </span>
                       </div>
+
+                      {endChoice ? (
+                        // A fragment cannot animate, so the three parts of the
+                        // end travel as one element — the same rise the clock
+                        // itself uses when it opens.
+                        <motion.span
+                          className="inline-flex items-center"
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.34, ease: EASE }}
+                        >
+                          <span className={`${CLOCK_LABEL} mx-1`}>until</span>
+                          <div className={CLOCK_FIELD}>
+                            <select
+                              value={endChoice.hour}
+                              onChange={(e) => pickEndHour(Number(e.target.value))}
+                              className={CLOCK_SELECT}
+                            >
+                              {endHours.map((h) => (
+                                <option key={h} value={h}>{h}</option>
+                              ))}
+                            </select>
+                            <span className="text-[10px] text-neutral-300 font-bold">:</span>
+                            {/* The value is the span, so the list can only ever
+                                hold times that come after the start. */}
+                            <select
+                              value={endOffset ?? 0}
+                              // A value off the list would parse to NaN, and a
+                              // NaN offset matches no choice — which would drop
+                              // the end silently rather than leaving it alone.
+                              onChange={(e) => {
+                                const next = parseInt(e.target.value, 10);
+                                if (!Number.isNaN(next)) setEndOffset(next);
+                              }}
+                              className={CLOCK_SELECT}
+                            >
+                              {endChoices.filter((c) => c.hour === endChoice.hour).map((c) => (
+                                <option key={c.offset} value={c.offset}>{c.minute}</option>
+                              ))}
+                            </select>
+                            <span className="text-[9px] font-bold uppercase text-neutral-400 ml-0.5">
+                              {endChoice.meridiem}
+                            </span>
+                          </div>
+                          <span className="text-[9px] uppercase tracking-wider text-[#c4c4bd] ml-[22px]">
+                            {spanLabel(endOffset ?? 0)}
+                          </span>
+                        </motion.span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEndOffset(60)}
+                          className={`${HOVER_LINK} ml-2`}
+                        >
+                          + end time
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => { setUseTime(false); setEndOffset(null); inputRef.current?.focus(); }}
+                        className="ml-auto text-[9px] tracking-wider text-[#c4c4bd] hover:text-neutral-500 transition-colors"
+                      >
+                        remove
+                      </button>
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-
-            <AnimatePresence>
-              {timeError && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="pl-9 text-[10px] text-red-500 font-bold uppercase tracking-widest mt-2"
-                >
-                  {timeError}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
           </div>
           <input type="submit" hidden />
         </motion.form>
