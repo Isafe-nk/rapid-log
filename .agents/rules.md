@@ -1,123 +1,267 @@
-# Rapid-Log: Core Features, Architecture & Security Rules
+# Rapid Log — Agent Rules
 
-This document serves as the absolute source of truth for the **Rapid-Log** application. It specifies all existing features, data structures, client rules, and security configurations. Every rule detailed below is strictly backed by the code implemented in the repository.
-
----
-
-## 📖 1. Core Feature Specification
-
-### A. Authentication & Wrapper Redirection
-* **Technology:** Firebase Auth (Google Sign-In as primary provider).
-* **Wrapper Detection:** The app detects if it runs in a standard browser or inside a native mobile/desktop wrapper shell (Capacitor iOS or macOS WKWebView):
-  ```typescript
-  const isNative = () => typeof (window as any).Capacitor !== 'undefined' || (window as any).__MACOS_NATIVE__ === true;
-  ```
-* **Auth Redirection Flow:**
-  * **Web Browsers:** Launches `signInWithPopup` for a seamless popup login overlay.
-  * **Native Wrappers:** Fallbacks to `signInWithRedirect`. Upon startup, the app executes `handleRedirectResult()` to extract credentials from WKWebView callback payloads.
-* **Header Profile:** Displays user's Google profile image (with a clean fallback `<User />` icon) and a minimalist "Logout" action.
-
-### B. Minimalist Entry Management
-Entries are categorized into three distinct types:
-1. **`task`**: Represents standard checkable items. Rendered with an elegant square checkbox border (`w-5 h-5 border-2 border-neutral-300 rounded`) that fills solid black with a white checkmark on completion.
-2. **`event`**: Represented by a minimalist open circle bullet (`○`).
-3. **`note`**: Informational items with a Left-border offset indent structure (`border-l-4 border-neutral-200 pl-6 ml-4`) and italicized neutral-600 text formatting.
-
-* **Priority Flag (`*`):** Users can tag any task or event as high-priority, which renders a warm amber asterisk next to it.
-* **Archive Drawer:** Completed tasks are dynamically moved out of daily task segments and stored in an collapsible "Archive" segment at the bottom, showcasing strike-through styling and historical timestamps.
-
-### C. Daily Timeline Structure
-Daily entries are organized into three distinct chronological segments:
-* **Morning (`morning`):** Defaults to 9:00 AM (applies to items before 12:00 PM).
-* **Noon (`noon`):** Defaults to 12:00 PM (applies to items between 12:00 PM and 5:00 PM).
-* **Night (`night`):** Defaults to 7:00 PM (applies to items after 5:00 PM).
-
-* **Time Configuration Constraints:**
-  * Users can optionally specify start and end times (`+ time`).
-  * End times automatically default to `+1 hour` relative to start times upon adjustment.
-  * If a user sets custom times, the app performs strict validation to check that the start time falls within the boundaries of the selected segment (e.g. Morning entries cannot be set after 12:00 PM).
-  * If start and end times are identical, or if end time precedes start time, UI submission is blocked and a clean, uppercase warning is displayed.
-
-### D. Drag & Drop Reordering
-* Draggable entries (those without strict fixed times) can be dragged across lists.
-* Hovering a draggable item over a different daily timeline segment triggers a dashed drop container overlay (`outline-dashed outline-2 outline-neutral-200`).
-* Dropping an item triggers a Firestore document update (`timeOfDay` = target slot) and leverages Framer Motion (`motion/react`) for transition animations.
-
-### E. Date Navigation & Calendar
-* Visual Calendar overlay to view logs on past or future dates.
-* **Aesthetics:** Shows active date in solid black. Today's actual date is highlighted in bold amber (`text-amber-600 font-black`), while dates outside the active month are visually muted.
-* **Snap-back Trigger:** If the active calendar view is set to a past or future date, a visual reset arrow (`RotateCcw`) appears in the header, letting the user snap instantly back to the current day.
+> **Source of truth for AI agents working on this repository.**
+> Rapid Log is an **open-source, MIT-licensed** daily logging app. Every change
+> is public. Every commit is permanent. Act accordingly.
 
 ---
 
-## 🎨 2. Aesthetics & UI Standards
+## 1. What This Project Is
 
-Every UI adjustment must respect this exact minimalist layout grid:
-* **Background:** Rich Warm Cream White (`bg-[#fcfcf9]`).
-* **Text:** Charcoal Soft Black (`text-[#1a1a1a]`).
-* **Accent Colors:** Warm Amber (`text-amber-500` / `text-amber-600`) and soft red overlays for deletions (`hover:bg-red-50`).
-* **Typography:** Strict typewriter typography using `font-mono`.
-* **Understated Background Grid:** A very light, transparent radial dot pattern on the viewport:
-  ```html
-  <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-  ```
-* **Transitions:** Micro-animations powered strictly by `motion/react`.
+A minimalist daily log that fits on one page. Each day is split into Morning,
+Noon and Night. Every line is a task, an event or a note. Nothing else.
 
----
+| Shell      | Stack                                                        |
+| ---------- | ------------------------------------------------------------ |
+| **Web**    | React 19 + Vite + Tailwind 4 + Framer Motion, on Firebase   |
+| **macOS**  | SwiftUI wrapping a `WKWebView`, loads the deployed URL       |
+| **iOS**    | Capacitor wrapper around the same web app                    |
 
-## 🔒 3. Strict Database Schema & Security Rules
-
-All operations targeting Cloud Firestore must strictly adhere to [`firestore.rules`](firestore.rules). Any query or mutation violating these conditions will fail:
-
-### A. Document Rules
-* **Authentication Requirement:** All read, list, create, update, and delete calls require a verified session (`request.auth != null`).
-* **Ownership Limitation:** Users can only view, fetch, edit, or delete items where `userId == request.auth.uid`.
-* **Safe ID Format:** Document IDs (`todoId`) must strictly consist of alphanumeric characters, dashes, or underscores, and cannot exceed 128 characters:
-  ```javascript
-  id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$')
-  ```
-
-### B. Data Properties Validation
-When adding or updating records, the document body must strictly match these constraints:
-* **Field Limits:** The document cannot contain more than 9 total keys.
-* **Mandatory Keys:** Must contain `['text', 'completed', 'type', 'timeOfDay', 'userId', 'createdAt']`.
-* **Property Size & Type Specifications:**
-  * `text`: Must be a string with a maximum length of 1000 characters.
-  * `completed`: Must be a boolean value.
-  * `type`: Must strictly belong to `['task', 'event', 'note']`.
-  * `timeOfDay`: Must strictly belong to `['morning', 'noon', 'night']`.
-  * `createdAt`: Must be a numerical timestamp and is immutable after creation.
-  * `userId`: Must match the authenticated user's UID and is immutable after creation.
-  * `time`, `endTime`, `priority`: Optional properties, but if provided, must match their corresponding types (`string` or `bool`).
+There is **no backend server**. The browser talks to Firestore directly.
+Security lives entirely in [`firestore.rules`](../firestore.rules).
 
 ---
 
-## 🛠️ 4. Local Development & CI Checks
+## 2. Open-Source SOP — Hard Rules
 
-Before submitting pull requests or making updates on `feature/dev`, always run these verify scripts locally:
+These rules are **non-negotiable**. Violating any of them is grounds for
+rejecting the entire changeset.
 
-1. **Lint and Type Checking:**
-   ```bash
-   npm run lint
-   ```
-   *(Executes `tsc --noEmit` to verify type safety).*
-2. **Build Integrity Check:**
-   ```bash
-   npm run build
-   ```
-   *(Compiles static assets to ensure code compilation succeeds).*
+### 2.1 Git Workflow
+
+| Rule | Detail |
+| ---- | ------ |
+| **Never commit directly** | All changes must go through PR review. AI must never run `git commit`, `git push`, or `git merge` on its own initiative. Produce the code changes and let the human handle git. |
+| **Never touch integration branches** | `main` and `feature/dev` are locked. Never commit or push to them directly. |
+| **Branch naming** | `feature/<name>`, `bugfix/<name>`, or `docs/<name>` — spawned off `feature/dev`. |
+| **Commit messages** | Lowercase, imperative, prefixed. Examples: `fix: stop the log arriving in waves`, `feat: add end-time picker`, `docs: update contributing guide`. Say what changed **and why**. |
+
+### 2.2 Verification Gates
+
+| When | What to run |
+| ---- | ----------- |
+| **Every change** | `npm run lint` (`tsc --noEmit`) — must pass with **zero errors**. |
+| **Structural changes** (imports, exports, build config, new files) | `npm run build` — must complete successfully. |
+
+Run these **before** presenting changes. Do not present code that fails either
+check.
+
+### 2.3 Deployment Restrictions
+
+| Command | Policy |
+| ------- | ------ |
+| `firebase deploy` | **Only when the user explicitly asks.** Never on AI initiative. |
+| `npx cap sync` | **Only when the user explicitly asks.** |
+| Any publish, release, or deploy command | **Only when the user explicitly asks.** |
+
+This is a **live production app** at `to-do-rapidlog.web.app` with real user
+data. An accidental deploy pushes broken code to every user.
+
+### 2.4 Dependency Management
+
+**Never add a new npm dependency without explicit user approval.**
+
+Before proposing a new dependency:
+1. Explain **why** it is needed.
+2. List **alternatives** considered (including doing it without a dependency).
+3. Assess the **maintenance and security** implications.
+
+Every new dependency is an attack surface and a maintenance burden in an
+open-source project.
 
 ---
 
-## 🌿 5. Git Branching & Workflow Rules
+## 3. Security-Sensitive Files
 
-To ensure highly organized and collaborative developments, all code changes must adhere strictly to these branching rules:
+These files form the **entire security boundary** of the application. There is
+no backend server — Firestore rules are the only thing between an attacker and
+every user's data.
 
-1. **Locking Integration Branches:** Development or production releases must never be edited or committed directly on `main` or `feature/dev`.
-2. **Short-Lived Task Branches:** Every new feature, UI tweak, or bug fix must operate within its own dedicated short-lived branch spawned off `feature/dev`.
-3. **Prefix Taxonomy:**
-   * **`feature/<name>`**: Adding new visual features or user options.
-   * **`bugfix/<name>`**: Resolving functional anomalies, errors, or security misalignments.
-   * **`docs/<name>`**: Refining references, guides, or workspace standards documents.
-4. **Verification Step:** Before merging a task branch back into `feature/dev`, local compile and lint suites (`npm run lint && npm run build`) must run and pass with absolutely zero errors.
+| File | What it controls |
+| ---- | ---------------- |
+| [`firestore.rules`](../firestore.rules) | All read/write access control and data validation |
+| [`firestore.indexes.json`](../firestore.indexes.json) | Query indexes — removing one silently breaks queries |
+| [`firebase-applet-config.json`](../firebase-applet-config.json) | Auth domain, API config — a wrong change silently breaks sign-in |
 
+### Policy
+
+- AI **may** propose changes to these files when a feature requires it.
+- AI **must prominently flag** any change to these files with a clear warning so
+  the human reviewer does not miss it.
+- If a feature adds or removes a field on an entry, the AI **must** update
+  `firestore.rules` in the **same changeset** and flag the rules change for
+  security review. This is the single easiest thing to forget.
+
+### Schema Sync Checklist
+
+When adding a new field to an entry:
+1. Add the field to the `hasOnly` list in `isValidTodo()` in `firestore.rules`.
+2. Add a type validation line for the new field (following the existing pattern).
+3. Flag the change prominently: *"⚠️ This changeset modifies `firestore.rules`.
+   Please review the security implications."*
+
+---
+
+## 4. Architecture Constraints
+
+### 4.1 Single-File Architecture
+
+Nearly all of the web app lives in [`src/App.tsx`](../src/App.tsx). **This is a
+deliberate choice, not an oversight** — it is one screen, and splitting it made
+it harder to follow, not easier.
+
+**Do not** split `App.tsx` into separate component files without explicit user
+approval. Work within the existing structure.
+
+### 4.2 Core Invariants
+
+These behaviors must **never** be broken:
+
+| Invariant | Detail |
+| --------- | ------ |
+| **Guest mode** | All features must function without sign-in. Entries live in React state only. Nothing leaves the tab. |
+| **Auth branching** | `signInWithPopup` for web browsers, `signInWithRedirect` for native wrappers (Capacitor / macOS WKWebView). Never change this logic without understanding why it exists. |
+| **Shell compatibility** | Changes must not break WKWebView (macOS) or Capacitor (iOS). Do not use browser APIs unavailable in WebView contexts. |
+| **Ownership enforcement** | Every Firestore read/write is scoped to `userId == request.auth.uid`. Never weaken this. |
+| **Immutable fields** | `userId` and `createdAt` cannot be changed after creation. This is enforced in `firestore.rules`. |
+
+### 4.3 Native Wrapper Detection
+
+The app detects its runtime environment with:
+```typescript
+const isNative = () =>
+  typeof (window as any).Capacitor !== 'undefined' ||
+  (window as any).__MACOS_NATIVE__ === true;
+```
+Do not alter this detection logic without understanding the auth flow
+implications.
+
+---
+
+## 5. Aesthetics & UI Standards
+
+Every UI change must strictly follow these design tokens. Do not introduce new
+colors, fonts, or animation libraries.
+
+| Token | Value |
+| ----- | ----- |
+| **Background** | Warm cream white `bg-[#fcfcf9]` |
+| **Text** | Charcoal soft black `text-[#1a1a1a]` |
+| **Accent** | Warm amber `text-amber-500` / `text-amber-600` |
+| **Danger** | Soft red overlays `hover:bg-red-50` |
+| **Typography** | Strict typewriter `font-mono` |
+| **Animations** | `motion/react` (Framer Motion) only |
+| **Background grid** | Radial dot pattern at `opacity-[0.03]`, `24px` spacing |
+
+### Entry Type Rendering
+
+| Type | Visual |
+| ---- | ------ |
+| `task` | Square checkbox (`w-5 h-5 border-2 border-neutral-300 rounded`), fills solid black with white checkmark on completion |
+| `event` | Open circle bullet (`○`) |
+| `note` | Left-border indent (`border-l-4 border-neutral-200 pl-6 ml-4`), italicized `text-neutral-600` |
+
+### Priority
+
+Warm amber asterisk (`*`) next to the entry. Does not reorder — visual flag
+only.
+
+---
+
+## 6. Data Model
+
+### Firestore Collection: `todos`
+
+One document per entry. The permitted fields are:
+
+| Field | Type | Required | Mutable | Constraints |
+| ----- | ---- | -------- | ------- | ----------- |
+| `text` | string | ✓ | ✓ | Max 1000 chars |
+| `completed` | boolean | ✓ | ✓ | |
+| `type` | string | ✓ | ✓ | `'task'` \| `'event'` \| `'note'` |
+| `timeOfDay` | string | ✓ | ✓ | `'morning'` \| `'noon'` \| `'night'` |
+| `userId` | string | ✓ | ✗ | Must match `request.auth.uid` |
+| `createdAt` | number | ✓ | ✗ | Epoch ms |
+| `time` | string | — | ✓ | Optional start time |
+| `endTime` | string | — | ✓ | Optional end time |
+| `priority` | boolean | — | ✓ | Optional priority flag |
+
+**Document IDs** must be alphanumeric, dashes, or underscores, max 128 chars.
+
+### Time Segments
+
+| Segment | Default Time | Boundary |
+| ------- | ------------ | -------- |
+| Morning | 9:00 AM | Before 12:00 PM |
+| Noon | 12:00 PM | 12:00 PM – 5:00 PM |
+| Night | 7:00 PM | After 5:00 PM |
+
+- End time defaults to `+1 hour` from start.
+- Start time must fall within the segment boundary.
+- Identical or reversed start/end times block submission with an uppercase
+  warning.
+
+### Guest Mode Data Flow
+
+1. Entries live in React state only.
+2. On sign-in, entries are stashed to `localStorage` (because `signInWithRedirect`
+   navigates away and destroys memory).
+3. Stash has a 10-minute TTL.
+4. Stash is cleared only after the Firestore write succeeds.
+
+---
+
+## 7. Development Reference
+
+### Local Development
+
+```bash
+npm install
+npm run dev        # Vite on port 3000
+```
+
+Runs against the **real Firebase project** — signing in writes to real data.
+
+### Available Scripts
+
+| Script | Command | Purpose |
+| ------ | ------- | ------- |
+| `dev` | `vite --port=3000 --host=0.0.0.0` | Local dev server |
+| `build` | `vite build` | Production build |
+| `lint` | `tsc --noEmit` | Type checking (no test suite) |
+| `clean` | `rm -rf dist` | Clear build artifacts |
+
+### Deploy (human-initiated only)
+
+```bash
+npm run build
+npx firebase deploy --only hosting
+
+# Rules and indexes deploy separately:
+npx firebase deploy --only firestore:rules
+npx firebase deploy --only firestore:indexes
+```
+
+### Caching
+
+`index.html` is served with `no-cache`; hashed assets with `immutable`. Without
+this, a cached `index.html` resolves the previous bundle and the app silently
+runs old code after a deploy.
+
+---
+
+## 8. Checklist Before Presenting Changes
+
+Use this checklist before presenting any code change:
+
+- [ ] `npm run lint` passes with zero errors
+- [ ] `npm run build` passes (if structural change)
+- [ ] No new dependencies added without explicit approval
+- [ ] No direct commits — changes are presented for PR review
+- [ ] If a new entry field was added: `firestore.rules` updated in same changeset
+- [ ] If `firestore.rules` was touched: prominently flagged for security review
+- [ ] If security-sensitive files were touched: prominently flagged
+- [ ] UI changes follow the existing design tokens exactly
+- [ ] Single-file architecture preserved (no splitting `App.tsx`)
+- [ ] Guest mode still works (no sign-in required for core features)
+- [ ] No deploy commands run without explicit user instruction
