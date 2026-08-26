@@ -144,20 +144,33 @@ had drifted a full minor version behind `package.json` before this existed.
 
 ### The disk image
 
-The disk image is the download, committed at `public/RapidLog-macOS.dmg`. A zip
-left a bare `RapidLog.app` in `~/Downloads` with no hint where it belonged, so
-people ran it from there indefinitely; the image opens a window with the app and
-an `Applications` symlink next to it, which is the whole reason it exists.
+The disk image is the download. A zip left a bare `RapidLog.app` in
+`~/Downloads` with no hint where it belonged, so people ran it from there
+indefinitely; the image opens a window with the app and an `Applications`
+symlink next to it, which is the whole reason it exists.
 
-`*.dmg` is gitignored so locally built images cannot be committed by accident.
-The one in `public/` is the exception, and `.gitignore` names it explicitly.
+It is **not** served from this site. Firebase Hosting rejects executable files
+on the Spark plan — `.dmg` included — so the image is attached to a GitHub
+Release and `firebase.json` redirects to it:
 
-The zip is still built, and CI still attaches it to the release for anyone who
-wants it, but nothing links to it.
+```
+to-do-rapidlog.web.app/RapidLog-macOS.dmg
+  -> github.com/Isafe-nk/rapid-log/releases/latest/download/RapidLog-macOS.dmg
+```
+
+Hosting therefore serves no binary at all, and no binary belongs in this
+repository. `*.dmg` is gitignored with no exceptions. The published URL is
+unchanged, so existing links and bookmarks keep working; `/RapidLog-macOS.zip`
+redirects the same way for anything still pointing at the old name.
+
+Redirects are evaluated before rewrites, so the catch-all rewrite to
+`index.html` does not swallow these. That matters: before the redirect existed,
+requesting a missing `.dmg` returned `index.html` with a 200 rather than a 404,
+which is a download that appears to succeed and hands over a web page.
 
 Shipping an image changes where the app lands, not whether it opens. Quarantine
-attaches to the downloaded image and files copied out of it inherit the flag, so
-the Gatekeeper wall below is unaffected.
+attaches to the downloaded image and files dragged out of it inherit the flag,
+so the Gatekeeper wall below is unaffected.
 
 ### Releasing
 

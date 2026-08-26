@@ -6,11 +6,10 @@ coverage/
 *.log
 .env*
 
-# Locally built disk images, which land in macos/build/artifacts. The one in
-# public/ is the download itself and has to be committed, hence the exception.
+# Built Mac apps and disk images. The download is attached to a GitHub Release
+# rather than served from here, so no binary belongs in this repository at all.
 # See CONTRIBUTING.md for the build commands.
 *.dmg
-!public/RapidLog-macOS.dmg
 
 # Firebase CLI deploy cache — rewritten on every deploy
 .firebase/
