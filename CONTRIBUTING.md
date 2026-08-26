@@ -131,6 +131,51 @@ launchable app. `--noextattr --norsrc` drop the `._` AppleDouble files that
 signature survives both. Verify by extracting the zip and running
 `codesign --verify --deep --strict` on the result.
 
+### The disk image
+
+A zip leaves a bare `RapidLog.app` in `~/Downloads` with no hint where it
+belongs, so people run it from there indefinitely. The disk image exists only
+to provide the drag-to-Applications window:
+
+```
+mkdir -p dmg-stage
+ditto macos/build/DerivedData/Build/Products/Release/RapidLog.app dmg-stage/RapidLog.app
+ln -s /Applications dmg-stage/Applications
+hdiutil create -volname "Rapid Log" -srcfolder dmg-stage -ov -format UDZO \
+  RapidLog-macOS.dmg
+```
+
+`ditto` rather than `cp -R`, so the signature and extended attributes survive
+the copy. The `Applications` symlink is the whole point — without it the
+window has nothing to drag onto.
+
+It changes where the app lands, not whether it opens. Quarantine attaches to
+the downloaded image and files copied out of it inherit the flag, so the
+Gatekeeper wall below is unaffected.
+
+### Releasing
+
+`.github/workflows/release-macos.yml` does all of the above on a `v*` tag,
+and is the intended way to cut a release:
+
+```
+git tag -a v1.2.0 -m "..." && git push origin v1.2.0
+```
+
+The version comes from the tag, injected as `MARKETING_VERSION` at build time,
+so `project.yml`'s literal is irrelevant to a release and cannot drift from
+`package.json` again. `CFBundleVersion` comes from the run number, which never
+repeats. Ad-hoc signing needs no certificate, so the runner needs no secrets.
+
+Run it from the Actions tab with **workflow_dispatch** to rehearse: it builds
+and verifies identically but publishes nothing, keeping the artifacts for 14
+days instead.
+
+The build fails rather than shipping if the app reports a version other than
+the tag's, if `lipo` does not report both architectures, if the signature does
+not verify after a round trip through each archive, if `RapidLog.app` is not at
+the root of the zip, or if any web asset ends up inside the bundle.
+
 ### Signing
 
 The app is **ad-hoc signed** (`Signature=adhoc`, no team identifier), so
