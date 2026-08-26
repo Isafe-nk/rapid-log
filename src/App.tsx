@@ -331,6 +331,11 @@ const MacDownloadButton: React.FC = () => {
   // The anchor's own default action performs the download. Reading the file in
   // JavaScript to drive a progress bar cost the user gesture, and Safari then
   // treats it as an automatic download and asks permission every single time.
+  //
+  // The `download` attribute below is inert: the URL redirects to a GitHub
+  // Release, and browsers ignore the attribute cross-origin. The filename comes
+  // from GitHub's Content-Disposition instead. Kept because it still applies if
+  // the asset is ever served from this origin again.
   const onDownload = () => {
     clearTimers();
     timers.current.push(window.setTimeout(() => setDone(true), 700));

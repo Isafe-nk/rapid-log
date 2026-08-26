@@ -10,6 +10,18 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "redirects": [
+      {
+        "source": "/RapidLog-macOS.dmg",
+        "destination": "https://github.com/Isafe-nk/rapid-log/releases/latest/download/RapidLog-macOS.dmg",
+        "type": 302
+      },
+      {
+        "source": "/RapidLog-macOS.zip",
+        "destination": "https://github.com/Isafe-nk/rapid-log/releases/latest/download/RapidLog-macOS.zip",
+        "type": 302
+      }
+    ],
     "rewrites": [
       {
         "source": "**",
