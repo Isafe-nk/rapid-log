@@ -144,14 +144,20 @@ had drifted a full minor version behind `package.json` before this existed.
 
 ### The disk image
 
-A zip leaves a bare `RapidLog.app` in `~/Downloads` with no hint where it
-belongs, so people run it from there indefinitely. The disk image exists only
-to provide the drag-to-Applications window, which is an `Applications` symlink
-sitting next to the app inside the image.
+The disk image is the download, committed at `public/RapidLog-macOS.dmg`. A zip
+left a bare `RapidLog.app` in `~/Downloads` with no hint where it belonged, so
+people ran it from there indefinitely; the image opens a window with the app and
+an `Applications` symlink next to it, which is the whole reason it exists.
 
-It changes where the app lands, not whether it opens. Quarantine attaches to
-the downloaded image and files copied out of it inherit the flag, so the
-Gatekeeper wall below is unaffected by shipping one.
+`*.dmg` is gitignored so locally built images cannot be committed by accident.
+The one in `public/` is the exception, and `.gitignore` names it explicitly.
+
+The zip is still built, and CI still attaches it to the release for anyone who
+wants it, but nothing links to it.
+
+Shipping an image changes where the app lands, not whether it opens. Quarantine
+attaches to the downloaded image and files copied out of it inherit the flag, so
+the Gatekeeper wall below is unaffected.
 
 ### Releasing
 
@@ -185,7 +191,7 @@ Application* certificate to sign with, then notarization and stapling.
 ```
 xcodebuild ... CODE_SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" \
   OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
-xcrun notarytool submit public/RapidLog-macOS.zip --apple-id ... --team-id ... --wait
+xcrun notarytool submit public/RapidLog-macOS.dmg --apple-id ... --team-id ... --wait
 xcrun stapler staple macos/build/.../RapidLog.app   # then re-zip the stapled app
 ```
 

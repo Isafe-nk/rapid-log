@@ -279,8 +279,8 @@ const newLocalId = (): string =>
     ? crypto.randomUUID()
     : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-const DOWNLOAD_URL = '/RapidLog-macOS.zip';
-const DOWNLOAD_FILENAME = 'RapidLog-macOS.zip';
+const DOWNLOAD_URL = '/RapidLog-macOS.dmg';
+const DOWNLOAD_FILENAME = 'RapidLog-macOS.dmg';
 // One fact, not a spec strip. Size and architecture change nobody's mind;
 // the OS version is the only thing here that stops a download that cannot run.
 const DOWNLOAD_META = 'macOS 14 or later';
@@ -405,7 +405,8 @@ const MacInstallSteps: React.FC = () => {
 
       <Step n={1}>
         <p className="text-[10px] leading-relaxed text-neutral-400 tracking-wide">
-          Move <span className="text-neutral-600">RapidLog</span> to your Applications folder.
+          Open the disk image, then drag <span className="text-neutral-600">RapidLog</span> onto
+          the Applications folder beside it.
         </p>
       </Step>
 
@@ -1337,8 +1338,8 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   {!(window as any)?.__MACOS_NATIVE__ && (
                     <a
-                      href="/RapidLog-macOS.zip"
-                      download="RapidLog-macOS.zip"
+                      href="/RapidLog-macOS.dmg"
+                      download="RapidLog-macOS.dmg"
                       onClick={() => setMacHelp(true)}
                       // Amber is the priority star elsewhere, borrowed here only
                       // for a hover. A transient highlight dilutes the accent far
@@ -1367,8 +1368,8 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   {!(window as any)?.__MACOS_NATIVE__ && (
                     <a
-                      href="/RapidLog-macOS.zip"
-                      download="RapidLog-macOS.zip"
+                      href="/RapidLog-macOS.dmg"
+                      download="RapidLog-macOS.dmg"
                       onClick={() => setMacHelp(true)}
                       // Amber is the priority star elsewhere, borrowed here only
                       // for a hover. A transient highlight dilutes the accent far
