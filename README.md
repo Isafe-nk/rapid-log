@@ -8,7 +8,7 @@ Each day is split into Morning, Noon and Night. Every line is a task, an event
 or a note. Nothing else.
 
 [**Open the web app**](https://to-do-rapidlog.web.app) &nbsp;·&nbsp;
-[**Download for macOS**](https://to-do-rapidlog.web.app/RapidLog-macOS.zip)
+[**Download for macOS**](https://to-do-rapidlog.web.app/RapidLog-macOS.dmg)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -42,10 +42,10 @@ or a note. Nothing else.
 **Web** — nothing to install: [to-do-rapidlog.web.app](https://to-do-rapidlog.web.app).
 Works everywhere, but there is no menu bar.
 
-**macOS 14 or later** — [download the app](https://to-do-rapidlog.web.app/RapidLog-macOS.zip)
+**macOS 14 or later** — [download the app](https://to-do-rapidlog.web.app/RapidLog-macOS.dmg)
 (universal, Apple Silicon and Intel), then:
 
-1. Move `RapidLog.app` to your Applications folder.
+1. Open the disk image and drag `RapidLog` onto the Applications folder beside it.
 2. Run this once, because the app is not notarized yet:
 
    ```
