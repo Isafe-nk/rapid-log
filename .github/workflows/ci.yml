@@ -1,0 +1,101 @@
+name: CI
+
+# Runs on everything that lands on main and on every pull request, which is the
+# half that was missing: releases were automated before the code they ship was
+# ever checked.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push supersedes an older one, so there is no value in finishing a run
+# for code that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # Linux, not macOS. Free and unmetered on public repositories, and not
+    # subject to the 10x multiplier macOS runners are billed at. Nothing here
+    # needs a Mac — the macOS app is built by the release workflow.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # .nvmrc is the single source of the Node version, so CI and a local
+          # checkout cannot drift onto different majors.
+          node-version-file: .nvmrc
+          cache: npm
+
+      # ci, not install: it installs exactly what package-lock.json pins and
+      # fails if the lockfile and package.json disagree, rather than quietly
+      # resolving something new.
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # The download lives on a GitHub Release precisely so that no binary is
+      # committed here. Nothing enforced that, and the repository has already
+      # accumulated ~10 MB of superseded ones this way.
+      - name: No binaries committed
+        run: |
+          set -euo pipefail
+          FOUND="$(git ls-files | grep -E '\.(dmg|zip|pkg|exe)$' || true)"
+          if [ -n "$FOUND" ]; then
+            echo "::error::Binary artifacts must not be committed. Attach them to a release instead."
+            echo "$FOUND" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "no binary artifacts tracked"
+
+      # firebase.json redirects the download to a release asset by filename. If
+      # the script's output names change and the redirects do not, the download
+      # 404s at GitHub and nothing here would notice until a user reported it.
+      - name: Download redirects match the release artifacts
+        run: |
+          node -e '
+            const fs = require("fs");
+            const cfg = JSON.parse(fs.readFileSync("firebase.json", "utf8"));
+            const script = fs.readFileSync("scripts/package-macos.sh", "utf8");
+            const redirects = cfg.hosting.redirects || [];
+            if (!redirects.length) {
+              console.log("::error::No download redirects declared in firebase.json.");
+              process.exit(1);
+            }
+            let bad = 0;
+            for (const r of redirects) {
+              const file = r.destination.split("/").pop();
+              if (script.includes("$OUT/" + file)) {
+                console.log(`  ok  ${r.source} -> ${file}`);
+              } else {
+                console.log(`::error::${r.source} redirects to ${file}, which scripts/package-macos.sh does not build.`);
+                bad++;
+              }
+            }
+            process.exit(bad ? 1 : 0);
+          '
+
+      # Hosting rejects executables on the Spark plan, so a committed binary
+      # under public/ does not merely bloat the repository — it makes the site
+      # undeployable, and the deploy fails only after the build has passed.
+      - name: Nothing unservable in the build output
+        run: |
+          set -euo pipefail
+          FOUND="$(find dist -type f \( -name '*.dmg' -o -name '*.pkg' -o -name '*.exe' \) || true)"
+          if [ -n "$FOUND" ]; then
+            echo "::error::dist contains an executable, which Firebase Hosting rejects on the Spark plan."
+            echo "$FOUND" | sed 's/^/  /'
+            exit 1
+          fi
+          echo "dist is servable"
