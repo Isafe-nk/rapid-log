@@ -6,8 +6,9 @@ coverage/
 *.log
 .env*
 
-# Built Mac app and disk images — the release download is built on demand,
-# never committed. See the README for the build and packaging commands.
+# Locally built disk images. The zip at public/RapidLog-macOS.zip is committed
+# for now, but releases rebuild both artifacts from source, so nothing built
+# here is worth keeping. See CONTRIBUTING.md for the build commands.
 *.dmg
 
 # Firebase CLI deploy cache — rewritten on every deploy

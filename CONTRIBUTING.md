@@ -111,70 +111,63 @@ otherwise deallocate it and leave the popover stale and inert.
 ### Building the download
 
 ```
-cd macos
-xcodebuild -project RapidLog.xcodeproj -scheme RapidLog -configuration Release \
-  -derivedDataPath build/DerivedData ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
-
-cd ..
-ditto -c -k --keepParent --noextattr --norsrc \
-  macos/build/DerivedData/Build/Products/Release/RapidLog.app \
-  public/RapidLog-macOS.zip
+scripts/package-macos.sh 1.2.0
 ```
 
-`ARCHS` is not optional. A plain Release build produces an arm64-only binary
-that Intel Macs cannot launch at all.
+That builds, packages both a zip and a disk image into
+`macos/build/artifacts/`, and verifies each one the way a recipient receives
+it. It is the same script CI runs, so a release cannot be built one way here
+and another way there.
 
-`ditto --keepParent` is what puts `RapidLog.app` at the root of the archive.
+It refuses to produce an artifact — rather than warning — if the app reports a
+version other than the one asked for, if `lipo` does not report both
+architectures, if the signature does not survive a round trip through either
+archive, if `RapidLog.app` is not at the root of the zip, if the disk image has
+no working `Applications` symlink, or if any web asset ends up inside the
+bundle. The last two conditions are bugs that shipped once already.
+
+Three details in there are worth knowing, because they are easy to get wrong
+by hand:
+
+`ARCHS="arm64 x86_64"` is not optional. A plain Release build produces an
+arm64-only binary that Intel Macs cannot launch at all.
+
+`ditto -c -k --keepParent` is what puts `RapidLog.app` at the root of the zip.
 Zipping from inside the bundle yields a bare `Contents/` folder that is not a
 launchable app. `--noextattr --norsrc` drop the `._` AppleDouble files that
 `com.apple.provenance` would otherwise scatter through the archive; the
-signature survives both. Verify by extracting the zip and running
-`codesign --verify --deep --strict` on the result.
+signature survives both.
+
+The version is passed to `xcodebuild` as `MARKETING_VERSION` rather than read
+from `project.yml`, so that file's literal never takes part in a release. It
+had drifted a full minor version behind `package.json` before this existed.
 
 ### The disk image
 
 A zip leaves a bare `RapidLog.app` in `~/Downloads` with no hint where it
 belongs, so people run it from there indefinitely. The disk image exists only
-to provide the drag-to-Applications window:
-
-```
-mkdir -p dmg-stage
-ditto macos/build/DerivedData/Build/Products/Release/RapidLog.app dmg-stage/RapidLog.app
-ln -s /Applications dmg-stage/Applications
-hdiutil create -volname "Rapid Log" -srcfolder dmg-stage -ov -format UDZO \
-  RapidLog-macOS.dmg
-```
-
-`ditto` rather than `cp -R`, so the signature and extended attributes survive
-the copy. The `Applications` symlink is the whole point — without it the
-window has nothing to drag onto.
+to provide the drag-to-Applications window, which is an `Applications` symlink
+sitting next to the app inside the image.
 
 It changes where the app lands, not whether it opens. Quarantine attaches to
 the downloaded image and files copied out of it inherit the flag, so the
-Gatekeeper wall below is unaffected.
+Gatekeeper wall below is unaffected by shipping one.
 
 ### Releasing
 
-`.github/workflows/release-macos.yml` does all of the above on a `v*` tag,
-and is the intended way to cut a release:
+Push a tag. `.github/workflows/release-macos.yml` runs the same script and
+attaches both artifacts to a GitHub Release, disk image first:
 
 ```
 git tag -a v1.2.0 -m "..." && git push origin v1.2.0
 ```
 
-The version comes from the tag, injected as `MARKETING_VERSION` at build time,
-so `project.yml`'s literal is irrelevant to a release and cannot drift from
-`package.json` again. `CFBundleVersion` comes from the run number, which never
-repeats. Ad-hoc signing needs no certificate, so the runner needs no secrets.
+Ad-hoc signing needs no certificate, so the runner needs no secrets.
+`CFBundleVersion` comes from the run number, which never repeats.
 
-Run it from the Actions tab with **workflow_dispatch** to rehearse: it builds
-and verifies identically but publishes nothing, keeping the artifacts for 14
-days instead.
-
-The build fails rather than shipping if the app reports a version other than
-the tag's, if `lipo` does not report both architectures, if the signature does
-not verify after a round trip through each archive, if `RapidLog.app` is not at
-the root of the zip, or if any web asset ends up inside the bundle.
+To rehearse without publishing, run the workflow from the Actions tab with
+**workflow_dispatch**, or just run the script locally — they do the same work
+and the same checks.
 
 ### Signing
 
