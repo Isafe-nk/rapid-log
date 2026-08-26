@@ -225,3 +225,24 @@ changed and why — `fix: stop the log arriving in waves` rather than
 
 If a change touches an entry's shape, check that `firestore.rules` was updated
 in the same commit. That is the single easiest thing to forget here.
+
+### What CI checks
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+`npm ci`, then `npm run lint` and `npm run build`. Node comes from `.nvmrc`, so
+CI and a local checkout cannot end up on different majors.
+
+It also fails on three things that are easy to reintroduce and awkward to
+notice:
+
+- **A committed binary.** The download belongs on a release; roughly 10 MB of
+  superseded ones are already in this repository's history because nothing
+  stopped them.
+- **A download redirect pointing at a file nothing builds.** `firebase.json`
+  redirects by filename, so renaming the script's output silently 404s the
+  download at GitHub.
+- **An executable in `dist`.** Hosting rejects those on the Spark plan, and the
+  deploy fails only *after* the build has passed, which reads as a broken
+  pipeline rather than a bad payload.
+
+Releases are a separate workflow; see [Releasing](#releasing).
