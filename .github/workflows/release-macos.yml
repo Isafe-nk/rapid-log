@@ -1,0 +1,217 @@
+name: Release macOS app
+
+# Pushing a v* tag is what cuts a release, so the tag is the only place a
+# version number lives. Nothing in the repo needs editing to ship, which is
+# what stops MARKETING_VERSION drifting away from package.json again.
+#
+# workflow_dispatch is the rehearsal path: it builds and verifies exactly the
+# same way but publishes nothing, so you can prove the pipeline works before
+# any tag exists.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the leading v (e.g. 1.2.0)'
+        required: true
+        default: '0.0.0-test'
+
+permissions:
+  contents: write # create the Release and attach files to it
+
+jobs:
+  build:
+    # macos-latest rather than a pinned image, so this cannot fail the day an
+    # image is retired. If you want byte-reproducible builds, pin it to a
+    # specific runner (macos-15, macos-26, ...) once you know which images your
+    # account offers — the build uses no version-specific Xcode behaviour.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION='${{ inputs.version }}'
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not determine a version to build."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # CFBundleVersion must increase for every build macOS ever sees, and
+          # must never repeat. run_number does both without any bookkeeping.
+          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION (build ${{ github.run_number }})"
+
+      - name: Build the app
+        working-directory: macos
+        run: |
+          set -euo pipefail
+          # ARCHS is not optional. A plain Release build produces an arm64-only
+          # binary that Intel Macs cannot launch at all.
+          #
+          # CODE_SIGN_IDENTITY="-" is ad-hoc signing, which needs no
+          # certificate, so it works on a runner with an empty keychain. The
+          # project's own CODE_SIGN_STYLE is Automatic, which would fail here
+          # for want of a team, hence the Manual override.
+          #
+          # The version is injected rather than read from project.yml, so the
+          # literal in that file is irrelevant to a release.
+          xcodebuild \
+            -project RapidLog.xcodeproj \
+            -scheme RapidLog \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            MARKETING_VERSION="${{ steps.meta.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.meta.outputs.build }}" \
+            build
+
+      - name: Check the build before packaging it
+        run: |
+          set -euo pipefail
+          APP=macos/build/DerivedData/Build/Products/Release/RapidLog.app
+
+          GOT_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          WANT_VERSION='${{ steps.meta.outputs.version }}'
+          if [ "$GOT_VERSION" != "$WANT_VERSION" ]; then
+            echo "::error::App reports $GOT_VERSION but the tag says $WANT_VERSION."
+            exit 1
+          fi
+
+          # An arm64-only binary installs fine and then refuses to launch on
+          # Intel, so this is worth failing the build over rather than shipping.
+          ARCHS_OUT=$(lipo -archs "$APP/Contents/MacOS/RapidLog")
+          case "$ARCHS_OUT" in
+            *arm64*x86_64*|*x86_64*arm64*) : ;;
+            *) echo "::error::Not universal: lipo reports '$ARCHS_OUT'." ; exit 1 ;;
+          esac
+
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # The shell is meant to load the deployed site, not carry a copy of
+          # it. A stray bundle here would mean users running frozen assets.
+          if find "$APP" \( -name '*.html' -o -name '*.js' -o -name '*.css' \) | grep -q .; then
+            echo "::error::The app bundles web assets; it should load them over the network."
+            exit 1
+          fi
+
+          echo "version=$GOT_VERSION  archs=$ARCHS_OUT  signature ok  no bundled assets"
+
+      - name: Package the zip and the disk image
+        run: |
+          set -euo pipefail
+          APP=macos/build/DerivedData/Build/Products/Release/RapidLog.app
+          mkdir -p out
+
+          # --keepParent puts RapidLog.app at the root of the archive; zipping
+          # from inside the bundle yields a bare Contents/ folder that is not a
+          # launchable app. --noextattr --norsrc drop the ._ AppleDouble files
+          # that com.apple.provenance would otherwise scatter through it.
+          ditto -c -k --keepParent --noextattr --norsrc "$APP" out/RapidLog-macOS.zip
+
+          # The disk image exists for the drag-to-Applications window: a zip
+          # leaves a bare app in Downloads with no hint where it belongs, and
+          # people end up running it from there forever.
+          rm -rf dmg-stage && mkdir -p dmg-stage
+          # ditto rather than cp -R, to carry the signature and xattrs across.
+          ditto "$APP" dmg-stage/RapidLog.app
+          ln -s /Applications dmg-stage/Applications
+          hdiutil create \
+            -volname "Rapid Log" \
+            -srcfolder dmg-stage \
+            -ov \
+            -format UDZO \
+            out/RapidLog-macOS.dmg
+
+          ls -lh out
+
+      - name: Check both artifacts the way a user receives them
+        run: |
+          set -euo pipefail
+          WANT_VERSION='${{ steps.meta.outputs.version }}'
+
+          # --- the zip ---
+          rm -rf check-zip && mkdir -p check-zip
+          ditto -x -k out/RapidLog-macOS.zip check-zip
+          if [ ! -d check-zip/RapidLog.app ]; then
+            echo "::error::RapidLog.app is not at the root of the zip."
+            exit 1
+          fi
+          if unzip -l out/RapidLog-macOS.zip | grep -qE '__MACOSX|/\._'; then
+            echo "::error::Archive carries AppleDouble/resource-fork junk."
+            exit 1
+          fi
+          codesign --verify --deep --strict check-zip/RapidLog.app
+
+          # --- the disk image ---
+          MOUNT=$(hdiutil attach out/RapidLog-macOS.dmg -nobrowse -readonly | grep -oE '/Volumes/.*$' | head -1)
+          if [ -z "$MOUNT" ]; then
+            echo "::error::Could not mount the disk image."
+            exit 1
+          fi
+          trap 'hdiutil detach "$MOUNT" -quiet || true' EXIT
+
+          # Without this symlink the window has nothing to drag the app onto,
+          # which is the only reason the disk image exists.
+          if [ "$(readlink "$MOUNT/Applications")" != "/Applications" ]; then
+            echo "::error::The disk image has no working Applications symlink."
+            exit 1
+          fi
+          DMG_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$MOUNT/RapidLog.app/Contents/Info.plist")
+          if [ "$DMG_VERSION" != "$WANT_VERSION" ]; then
+            echo "::error::Disk image contains $DMG_VERSION, expected $WANT_VERSION."
+            exit 1
+          fi
+          codesign --verify --deep --strict "$MOUNT/RapidLog.app"
+
+          echo "zip and dmg both verified at $WANT_VERSION"
+
+          # Recorded rather than enforced: the app is ad-hoc signed, so
+          # Gatekeeper is expected to reject it and users still have to clear
+          # the quarantine flag by hand. Fixing that needs a Developer ID
+          # certificate and notarization, not a change here.
+          spctl -a -t exec -vv "$MOUNT/RapidLog.app" 2>&1 || true
+
+      # Rehearsal path: keeps the artifacts for 14 days so you can download and
+      # try them, without creating a Release or moving anything users can see.
+      - name: Keep the artifacts (rehearsal only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapidlog-macos-${{ steps.meta.outputs.version }}
+          path: |
+            out/RapidLog-macOS.zip
+            out/RapidLog-macOS.dmg
+          retention-days: 14
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION='${{ steps.meta.outputs.version }}'
+          # gh is preinstalled on the runner, so this needs no third-party
+          # action and nothing extra to trust.
+          gh release create "$GITHUB_REF_NAME" \
+            out/RapidLog-macOS.dmg \
+            out/RapidLog-macOS.zip \
+            --title "Rapid Log $VERSION" \
+            --generate-notes
+
+          echo "Published $GITHUB_REF_NAME with the disk image and the zip attached."
