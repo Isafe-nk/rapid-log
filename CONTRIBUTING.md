@@ -82,6 +82,11 @@ npx firebase deploy --only firestore:indexes
 resolving the previous bundle — which Firebase still serves — and the app
 silently runs old code after a deploy.
 
+This deploys the web app only. The macOS download is attached to a GitHub
+Release and reached through a redirect, so shipping a new version of the app
+needs no deploy at all — see [Releasing](#releasing). A deploy is only required
+when the redirect itself changes.
+
 ## Google sign-in
 
 `authDomain` in [`firebase-applet-config.json`](firebase-applet-config.json)
