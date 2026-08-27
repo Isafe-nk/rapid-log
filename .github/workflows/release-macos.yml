@@ -52,11 +52,10 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building $VERSION (build ${{ github.run_number }})"
 
-      # Builds, packages the zip and the disk image, and refuses to produce
-      # either unless the app reports the right version, lipo reports both
-      # architectures, the signature survives a round trip through each archive,
-      # RapidLog.app sits at the root of the zip, the disk image has a working
-      # Applications symlink, and no web asset ended up inside the bundle.
+      # Builds and packages the disk image, and refuses to produce it unless the
+      # app reports the right version, lipo reports both architectures, the
+      # signature survives the round trip through the image, the image has a
+      # working Applications symlink, and no web asset ended up in the bundle.
       #
       # CFBundleVersion comes from the run number: it must increase for every
       # build macOS ever sees and must never repeat, which run_number gives
@@ -71,14 +70,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rapidlog-macos-${{ steps.meta.outputs.version }}
-          path: |
-            macos/build/artifacts/RapidLog-macOS.zip
-            macos/build/artifacts/RapidLog-macOS.dmg
+          path: macos/build/artifacts/RapidLog-macOS.dmg
           retention-days: 14
 
-      # The disk image is listed first so it becomes the primary download on the
-      # release page: a zip leaves a bare app in Downloads with no hint where it
-      # belongs, and people run it from there indefinitely.
+      # The disk image is the only artifact. A zip left a bare app in Downloads
+      # with no hint where it belonged, so it is no longer built or published.
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -90,8 +86,7 @@ jobs:
           # action and nothing extra to trust.
           gh release create "$GITHUB_REF_NAME" \
             macos/build/artifacts/RapidLog-macOS.dmg \
-            macos/build/artifacts/RapidLog-macOS.zip \
             --title "Rapid Log $VERSION" \
             --generate-notes
 
-          echo "Published $GITHUB_REF_NAME with the disk image and the zip attached."
+          echo "Published $GITHUB_REF_NAME with the disk image attached."
