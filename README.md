@@ -26,8 +26,9 @@ or a note. Nothing else.
 - **One page per day.** Morning, Noon and Night. No projects, no boards, no tags.
 - **Three kinds of line.** A task, an event or a note — switched beside the input
   before you write.
-- **Times when you want them.** Any entry can carry a start and an end time, and
-  entries sort by time, then by when you added them.
+- **Times when you want them.** The section already says when — a task in Morning
+  needs no clock. Add one if it matters, and an end time if it runs for a while.
+  Notes are never timed. Entries sort by time, then by when you added them.
 - **Priority.** Star a line to mark it. It stays where it is; the star is there
   to catch your eye, not to reorder your day.
 - **Drag between sections.** Move something from Morning to Night by dragging it.

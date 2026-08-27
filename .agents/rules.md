@@ -52,10 +52,23 @@ check.
 | ------- | ------ |
 | `firebase deploy` | **Only when the user explicitly asks.** Never on AI initiative. |
 | `npx cap sync` | **Only when the user explicitly asks.** |
+| `git push` of a `v*` tag | **Only when the user explicitly asks.** This is a publish, not a push. |
+| `gh release create` / editing or deleting release assets | **Only when the user explicitly asks.** |
 | Any publish, release, or deploy command | **Only when the user explicitly asks.** |
 
 This is a **live production app** at `to-do-rapidlog.web.app` with real user
 data. An accidental deploy pushes broken code to every user.
+
+A `v*` tag is not an ordinary push. It triggers
+`.github/workflows/release-macos.yml`, which builds and publishes a GitHub
+Release — and because the download redirects to `releases/latest`, that release
+becomes the live download immediately, with no deploy step in between. Tagging
+is therefore the most consequential command in this repository: it reaches users
+faster than `firebase deploy` does.
+
+To build and check a release without publishing anything, run
+`scripts/package-macos.sh <version>` locally, or the workflow via
+**workflow_dispatch**. Both verify identically and publish nothing.
 
 ### 2.4 Dependency Management
 
@@ -240,6 +253,18 @@ npx firebase deploy --only hosting
 # Rules and indexes deploy separately:
 npx firebase deploy --only firestore:rules
 npx firebase deploy --only firestore:indexes
+```
+
+This deploys the web app only. The macOS download is a GitHub Release reached
+through a redirect in `firebase.json`, so shipping the Mac app needs no deploy —
+it needs a tag, which is governed by §2.3.
+
+### Release the macOS app (human-initiated only)
+
+```bash
+scripts/package-macos.sh 1.2.0     # build and verify, publishes nothing
+git tag -a v1.2.0 -m "..."        # then, only when asked:
+git push origin v1.2.0            # this publishes and goes live
 ```
 
 ### Caching
