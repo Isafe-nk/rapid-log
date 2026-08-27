@@ -5,7 +5,7 @@
 #   scripts/package-macos.sh <version> [build-number]
 #   scripts/package-macos.sh 1.2.0
 #
-# Produces macos/build/artifacts/RapidLog-macOS.{zip,dmg}. That path sits under
+# Produces macos/build/artifacts/RapidLog-macOS.dmg. That path sits under
 # build/, which .gitignore already covers, so nothing here can be committed by
 # accident.
 #
@@ -103,15 +103,8 @@ step "Packaging"
 rm -rf "$OUT" "$STAGE"
 mkdir -p "$OUT" "$STAGE"
 
-# --keepParent puts RapidLog.app at the root of the archive. Zipping from inside
-# the bundle yields a bare Contents/ folder that is not a launchable app.
-# --noextattr --norsrc drop the ._ AppleDouble files that com.apple.provenance
-# would otherwise scatter through it; the signature survives both.
-ditto -c -k --keepParent --noextattr --norsrc "$APP" "$OUT/RapidLog-macOS.zip"
-ok "zip"
-
-# The disk image exists for the drag-to-Applications window. A zip leaves a bare
-# app in Downloads with no hint where it belongs, and people run it from there.
+# The disk image is the only artifact. A zip left a bare app in Downloads with
+# no hint where it belonged, so it is not built at all any more.
 # ditto rather than cp -R, so the signature and xattrs survive the copy.
 ditto "$APP" "$STAGE/RapidLog.app"
 ln -s /Applications "$STAGE/Applications"
@@ -122,21 +115,6 @@ hdiutil create \
   -format UDZO \
   "$OUT/RapidLog-macOS.dmg" >/dev/null
 ok "dmg"
-
-step "Checking the zip as a user receives it"
-CHECK="macos/build/check-zip"
-rm -rf "$CHECK" && mkdir -p "$CHECK"
-ditto -x -k "$OUT/RapidLog-macOS.zip" "$CHECK"
-[ -d "$CHECK/RapidLog.app" ] || fail "RapidLog.app is not at the root of the zip"
-ok "RapidLog.app at the root"
-
-if unzip -l "$OUT/RapidLog-macOS.zip" | grep -qE '__MACOSX|/\._'; then
-  fail "archive carries AppleDouble/resource-fork junk"
-fi
-ok "no resource-fork junk"
-
-codesign --verify --deep --strict "$CHECK/RapidLog.app" || fail "signature did not survive the zip"
-ok "signature survived the round trip"
 
 step "Checking the disk image as a user receives it"
 MOUNT="$(hdiutil attach "$OUT/RapidLog-macOS.dmg" -nobrowse -readonly | grep -oE '/Volumes/.*$' | head -1)"

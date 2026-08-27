@@ -114,29 +114,21 @@ otherwise deallocate it and leave the popover stale and inert.
 scripts/package-macos.sh 1.2.0
 ```
 
-That builds, packages both a zip and a disk image into
-`macos/build/artifacts/`, and verifies each one the way a recipient receives
-it. It is the same script CI runs, so a release cannot be built one way here
-and another way there.
+That builds and packages the disk image into `macos/build/artifacts/`, and
+verifies it the way a recipient receives it. It is the same script CI runs, so a
+release cannot be built one way here and another way there.
 
 It refuses to produce an artifact — rather than warning — if the app reports a
 version other than the one asked for, if `lipo` does not report both
-architectures, if the signature does not survive a round trip through either
-archive, if `RapidLog.app` is not at the root of the zip, if the disk image has
-no working `Applications` symlink, or if any web asset ends up inside the
-bundle. The last two conditions are bugs that shipped once already.
+architectures, if the signature does not survive the round trip through the
+image, if the image has no working `Applications` symlink, or if any web asset
+ends up inside the bundle.
 
-Three details in there are worth knowing, because they are easy to get wrong
-by hand:
+Two details in there are worth knowing, because they are easy to get wrong by
+hand:
 
 `ARCHS="arm64 x86_64"` is not optional. A plain Release build produces an
 arm64-only binary that Intel Macs cannot launch at all.
-
-`ditto -c -k --keepParent` is what puts `RapidLog.app` at the root of the zip.
-Zipping from inside the bundle yields a bare `Contents/` folder that is not a
-launchable app. `--noextattr --norsrc` drop the `._` AppleDouble files that
-`com.apple.provenance` would otherwise scatter through the archive; the
-signature survives both.
 
 The version is passed to `xcodebuild` as `MARKETING_VERSION` rather than read
 from `project.yml`, so that file's literal never takes part in a release. It
@@ -160,8 +152,9 @@ to-do-rapidlog.web.app/RapidLog-macOS.dmg
 
 Hosting therefore serves no binary at all, and no binary belongs in this
 repository. `*.dmg` is gitignored with no exceptions. The published URL is
-unchanged, so existing links and bookmarks keep working; `/RapidLog-macOS.zip`
-redirects the same way for anything still pointing at the old name.
+unchanged, so existing links and bookmarks keep working. `/RapidLog-macOS.zip`
+redirects to the disk image too, so links to the old name get the app rather
+than a 404 — no zip is built or published any more.
 
 Redirects are evaluated before rewrites, so the catch-all rewrite to
 `index.html` does not swallow these. That matters: before the redirect existed,
@@ -175,7 +168,7 @@ so the Gatekeeper wall below is unaffected.
 ### Releasing
 
 Push a tag. `.github/workflows/release-macos.yml` runs the same script and
-attaches both artifacts to a GitHub Release, disk image first:
+attaches the disk image to a GitHub Release:
 
 ```
 git tag -a v1.2.0 -m "..." && git push origin v1.2.0
@@ -204,8 +197,9 @@ Application* certificate to sign with, then notarization and stapling.
 ```
 xcodebuild ... CODE_SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" \
   OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
-xcrun notarytool submit public/RapidLog-macOS.dmg --apple-id ... --team-id ... --wait
-xcrun stapler staple macos/build/.../RapidLog.app   # then re-zip the stapled app
+xcrun notarytool submit macos/build/artifacts/RapidLog-macOS.dmg \
+  --apple-id ... --team-id ... --wait
+xcrun stapler staple macos/build/artifacts/RapidLog-macOS.dmg
 ```
 
 Hardened runtime (`--options=runtime`) is required for notarization and is not

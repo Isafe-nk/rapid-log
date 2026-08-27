@@ -18,7 +18,7 @@
       },
       {
         "source": "/RapidLog-macOS.zip",
-        "destination": "https://github.com/Isafe-nk/rapid-log/releases/latest/download/RapidLog-macOS.zip",
+        "destination": "https://github.com/Isafe-nk/rapid-log/releases/latest/download/RapidLog-macOS.dmg",
         "type": 302
       }
     ],
