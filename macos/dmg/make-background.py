@@ -20,12 +20,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 WIDTH, HEIGHT = 660, 400
 
-# The ground is the app icon's own baked background, not the app's page colour
-# (#fcfcf9). The icons in AppIcon.appiconset are JPEGs with no alpha channel, so
-# the icon paints an opaque #f7f3e8 square wherever it lands; matching it here is
-# what stops that square being visible against the window. If the icon is ever
-# regenerated with transparency, this should go back to #fcfcf9.
-GROUND = "#f7f3e8"
+# The app's own page colour. It was briefly matched to the icon's baked
+# background, back when the icon was an opaque square and the match was the only
+# way to hide its edges. The icon now has transparent corners, so the ground can
+# differ again — and has to, because the icon body is itself cream and would
+# disappear into a cream window.
+GROUND = "#fcfcf9"
 TEXT = "#8f8f85"
 ARROW = "#c4c4bd"
 

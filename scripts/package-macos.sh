@@ -124,14 +124,10 @@ ok "dmgbuild ready"
 # the same iconset the app uses, so it cannot drift from the app's own icon.
 ICONSET="macos/build/RapidLog.iconset"
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"
-# sips rather than cp: the files in AppIcon.appiconset are JPEGs carrying a .png
-# extension, which Xcode's asset compiler accepts and iconutil rejects outright.
 for pair in "16 16x16" "32 32x32" "128 128x128" "256 256x256" "512 512x512"; do
   set -- $pair
-  sips -s format png "$APPICONS/icon_$1.png" \
-    --out "$ICONSET/icon_$2.png" >/dev/null 2>&1 || fail "could not convert icon_$1.png"
-  sips -s format png "$APPICONS/icon_$1@2x.png" \
-    --out "$ICONSET/icon_$2@2x.png" >/dev/null 2>&1 || fail "could not convert icon_$1@2x.png"
+  cp "$APPICONS/icon_$1.png"    "$ICONSET/icon_$2.png"
+  cp "$APPICONS/icon_$1@2x.png" "$ICONSET/icon_$2@2x.png"
 done
 iconutil -c icns "$ICONSET" -o "$VOLICON" || fail "could not build the volume icon"
 ok "volume icon"
