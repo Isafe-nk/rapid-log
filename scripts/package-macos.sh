@@ -32,6 +32,11 @@ DERIVED="macos/build/DerivedData"
 APP="$DERIVED/Build/Products/Release/RapidLog.app"
 OUT="macos/build/artifacts"
 STAGE="macos/build/dmg-stage"
+VENV="macos/build/venv"
+DMGDIR="macos/dmg"
+APPICONS="macos/RapidLog/Assets.xcassets/AppIcon.appiconset"
+VOLICON="macos/build/VolumeIcon.icns"
+BACKGROUND="macos/build/background.tiff"
 
 MOUNT=""
 cleanup() {
@@ -99,24 +104,64 @@ if find "$APP" \( -name '*.html' -o -name '*.js' -o -name '*.css' \) | grep -q .
 fi
 ok "no bundled web assets"
 
-step "Packaging"
+step "Preparing the disk image assets"
 rm -rf "$OUT" "$STAGE"
 mkdir -p "$OUT" "$STAGE"
 
-# The disk image is the only artifact. A zip left a bare app in Downloads with
-# no hint where it belonged, so it is not built at all any more.
-# ditto rather than cp -R, so the signature and xattrs survive the copy.
-ditto "$APP" "$STAGE/RapidLog.app"
-ln -s /Applications "$STAGE/Applications"
-hdiutil create \
-  -volname "Rapid Log" \
-  -srcfolder "$STAGE" \
-  -ov \
-  -format UDZO \
-  "$OUT/RapidLog-macOS.dmg" >/dev/null
+# dmgbuild lives in a venv under build/ rather than being installed globally, so
+# a clone needs no setup step and a runner needs no extra install. It is not
+# optional: without it the image would have no background, no window size and no
+# icon positions, which is the whole point of shipping a disk image.
+if [ ! -x "$VENV/bin/dmgbuild" ]; then
+  echo "   .. creating the build venv and installing dmgbuild"
+  python3 -m venv "$VENV" >/dev/null 2>&1 || fail "could not create a venv at $VENV"
+  "$VENV/bin/pip" install --quiet --disable-pip-version-check dmgbuild \
+    || fail "could not install dmgbuild into $VENV"
+fi
+ok "dmgbuild ready"
+
+# The mounted volume shows the app's icon instead of a blank drive. Built from
+# the same iconset the app uses, so it cannot drift from the app's own icon.
+ICONSET="macos/build/RapidLog.iconset"
+rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+# sips rather than cp: the files in AppIcon.appiconset are JPEGs carrying a .png
+# extension, which Xcode's asset compiler accepts and iconutil rejects outright.
+for pair in "16 16x16" "32 32x32" "128 128x128" "256 256x256" "512 512x512"; do
+  set -- $pair
+  sips -s format png "$APPICONS/icon_$1.png" \
+    --out "$ICONSET/icon_$2.png" >/dev/null 2>&1 || fail "could not convert icon_$1.png"
+  sips -s format png "$APPICONS/icon_$1@2x.png" \
+    --out "$ICONSET/icon_$2@2x.png" >/dev/null 2>&1 || fail "could not convert icon_$1@2x.png"
+done
+iconutil -c icns "$ICONSET" -o "$VOLICON" || fail "could not build the volume icon"
+ok "volume icon"
+
+# One TIFF carrying both the 1x and 2x artwork, so the background stays sharp on
+# a Retina display instead of being scaled up from the 1x image.
+tiffutil -cathidpicheck "$DMGDIR/background.png" "$DMGDIR/background@2x.png" \
+  -out "$BACKGROUND" >/dev/null 2>&1 || fail "could not build the background TIFF"
+ok "background (1x + 2x)"
+
+step "Packaging"
+# dmgbuild writes the .DS_Store itself. The conventional recipe drives Finder
+# over AppleScript to place the icons, which needs a GUI session and does not
+# work on a runner; this produces the same layout headlessly.
+"$VENV/bin/dmgbuild" \
+  -s "$DMGDIR/settings.py" \
+  -D app="$PWD/$APP" \
+  -D background="$PWD/$BACKGROUND" \
+  -D volume_icon="$PWD/$VOLICON" \
+  "Rapid Log" \
+  "$OUT/RapidLog-macOS.dmg" >/dev/null 2>&1 \
+  || fail "dmgbuild failed"
 ok "dmg"
 
 step "Checking the disk image as a user receives it"
+# Detach anything an interrupted earlier run left behind, or this mounts as
+# "Rapid Log 1" and the checks read a stale volume.
+for stale in /Volumes/Rapid\ Log*; do
+  [ -d "$stale" ] && hdiutil detach "$stale" -quiet 2>/dev/null || true
+done
 MOUNT="$(hdiutil attach "$OUT/RapidLog-macOS.dmg" -nobrowse -readonly | grep -oE '/Volumes/.*$' | head -1)"
 [ -n "$MOUNT" ] || fail "could not mount the disk image"
 ok "mounts at $MOUNT"
@@ -133,6 +178,58 @@ ok "contains $DMG_VERSION"
 
 codesign --verify --deep --strict "$MOUNT/RapidLog.app" || fail "signature did not survive the disk image"
 ok "signature survived the disk image"
+
+# The window only shows the drag instruction if the background and the icon
+# positions both survived into the image. Producing an unstyled disk image is a
+# silent failure otherwise: it mounts, it works, and it looks like nothing was
+# done. Read back what Finder will actually use.
+# dmgbuild stores a single background file as .background.tiff at the volume
+# root; the .background/ directory is what the AppleScript recipes produce.
+# Accept either, so this does not break if the tool changes.
+if [ -f "$MOUNT/.background.tiff" ]; then
+  BG_AT=".background.tiff"
+elif [ -f "$MOUNT/.background/background.tiff" ]; then
+  BG_AT=".background/background.tiff"
+else
+  fail "the disk image has no background picture"
+fi
+ok "background present ($BG_AT)"
+
+[ -f "$MOUNT/.VolumeIcon.icns" ] || fail "the disk image has no volume icon"
+ok "volume icon present"
+
+[ -f "$MOUNT/.DS_Store" ] || fail "the disk image has no .DS_Store, so the window is unstyled"
+python3 - "$MOUNT/.DS_Store" <<'PYEOF' || fail "icon positions are not what settings.py asks for"
+import re, struct, sys
+
+want = {"RapidLog.app": (180, 170), "Applications": (480, 170)}
+data = open(sys.argv[1], "rb").read()
+found = {}
+
+# Records are: name length (4 bytes BE), name (UTF-16BE), 4-byte code, 4-byte
+# type, then the value. For Iloc the value is a blob holding x and y.
+for m in re.finditer(b"Iloc", data):
+    i = m.start()
+    for nlen in range(1, 40):
+        start = i - nlen * 2 - 4
+        if start < 0:
+            break
+        if struct.unpack(">I", data[start:start + 4])[0] == nlen:
+            try:
+                name = data[start + 4:i].decode("utf-16-be")
+            except Exception:
+                break
+            x, y = struct.unpack(">II", data[i + 12:i + 20])
+            found[name] = (x, y)
+            break
+
+for name, xy in want.items():
+    if found.get(name) != xy:
+        print(f"      {name}: expected {xy}, found {found.get(name)}")
+        sys.exit(1)
+    print(f"      {name} at {xy}")
+PYEOF
+ok "icon positions"
 
 step "Gatekeeper (recorded, not enforced)"
 # Expected to be rejected: the app is ad-hoc signed, so recipients still have to

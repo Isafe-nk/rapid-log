@@ -126,8 +126,11 @@ release cannot be built one way here and another way there.
 It refuses to produce an artifact — rather than warning — if the app reports a
 version other than the one asked for, if `lipo` does not report both
 architectures, if the signature does not survive the round trip through the
-image, if the image has no working `Applications` symlink, or if any web asset
-ends up inside the bundle.
+image, if the image has no working `Applications` symlink, if the background or
+volume icon is missing, if the icons are not where `settings.py` puts them, or
+if any web asset ends up inside the bundle. The layout is read back out of the
+built image's `.DS_Store`, because an unstyled image still mounts and still
+works — it just silently looks like nothing was done.
 
 Two details in there are worth knowing, because they are easy to get wrong by
 hand:
@@ -143,28 +146,35 @@ had drifted a full minor version behind `package.json` before this existed.
 
 The disk image is the download. A zip left a bare `RapidLog.app` in
 `~/Downloads` with no hint where it belonged, so people ran it from there
-indefinitely; the image opens a window with the app and an `Applications`
-symlink next to it, which is the whole reason it exists.
+indefinitely; the image opens a window with the app, an `Applications` symlink
+and an arrow between them.
 
-It is **not** served from this site. Firebase Hosting rejects executable files
-on the Spark plan — `.dmg` included — so the image is attached to a GitHub
-Release and `firebase.json` redirects to it:
+Its appearance is built from `macos/dmg/`:
 
-```
-to-do-rapidlog.web.app/RapidLog-macOS.dmg
-  -> github.com/Isafe-nk/rapid-log/releases/latest/download/RapidLog-macOS.dmg
-```
+| | |
+| --- | --- |
+| `settings.py` | window size, icon coordinates, icon size, chrome |
+| `background.png`, `background@2x.png` | the artwork, combined into one HiDPI TIFF at build time |
+| `make-background.py` | regenerates both PNGs |
 
-Hosting therefore serves no binary at all, and no binary belongs in this
-repository. `*.dmg` is gitignored with no exceptions. The published URL is
-unchanged, so existing links and bookmarks keep working. `/RapidLog-macOS.zip`
-redirects to the disk image too, so links to the old name get the app rather
-than a 404 — no zip is built or published any more.
+The icon coordinates in `settings.py` and the arrow drawn by
+`make-background.py` are two halves of one layout. Move an icon without
+redrawing the background and the arrow points at empty space, so change both
+together.
 
-Redirects are evaluated before rewrites, so the catch-all rewrite to
-`index.html` does not swallow these. That matters: before the redirect existed,
-requesting a missing `.dmg` returned `index.html` with a 200 rather than a 404,
-which is a download that appears to succeed and hands over a web page.
+`dmgbuild` does the packaging, installed into a venv under `macos/build/` on
+first run — no global install, and nothing to set up before cloning. It is used
+rather than AppleScript because it writes the `.DS_Store` itself: the
+conventional recipe drives Finder to place the icons, which needs a logged-in
+GUI session and does not work on a runner.
+
+The background's ground colour is the app icon's own `#f7f3e8`, not the app's
+`#fcfcf9` page colour. Every file in `AppIcon.appiconset` is a JPEG carrying a
+`.png` extension, so the icon has no alpha channel and paints an opaque square
+wherever it lands. Matching the ground is what hides that square. Two
+consequences: the volume icon is built by converting those files with `sips`,
+because `iconutil` rejects them as-is, and if the icon is ever regenerated with
+transparency the ground should go back to `#fcfcf9`.
 
 Shipping an image changes where the app lands, not whether it opens. Quarantine
 attaches to the downloaded image and files dragged out of it inherit the flag,
