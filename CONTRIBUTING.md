@@ -107,6 +107,35 @@ Console: https://console.cloud.google.com/apis/credentials?project=to-do-rapidlo
 
 If sign-in ever fails with `redirect_uri_mismatch`, check that list first.
 
+## The app icon
+
+```
+assets/icon/make-icons.sh
+```
+
+`assets/icon/icon.png` is the only artwork. The script derives every platform's
+copy from it, and refuses to run if the master has no transparency.
+
+It exists because the icon used to be three unrelated copies with nothing
+keeping them in step — which is how the macOS set came to be JPEGs carrying a
+`.png` extension while the web version stayed a clean SVG. The platforms want
+genuinely different things:
+
+| | needs |
+| --- | --- |
+| macOS | transparency, and a margin around the body. Finder and the Dock draw the icon exactly as given, so the rounded shape has to be in the file. |
+| iOS | **no** alpha — the App Store rejects icons that have it — and full-bleed artwork, since iOS applies its own mask. The margin macOS needs would show here as a shrunken icon, so the script crops to the body and flattens. |
+
+The web favicon is hand-written SVG inlined in `index.html` and
+`public/manifest.webmanifest`, and is **not** generated: a data URI built from a
+few shapes costs no request and stays sharp at any size, which a downscaled PNG
+does not. If the artwork changes shape, edit that SVG to match — its geometry is
+measured off the master.
+
+Apple's grid puts the icon body at 824 of 1024, leaving a margin. Artwork that
+fills the canvas edge to edge will sit larger than its neighbours in the Dock
+even once its corners are rounded.
+
 ## The macOS app
 
 The window and the menu bar popover share one long-lived `WKWebView` owned by
@@ -168,13 +197,12 @@ rather than AppleScript because it writes the `.DS_Store` itself: the
 conventional recipe drives Finder to place the icons, which needs a logged-in
 GUI session and does not work on a runner.
 
-The background's ground colour is the app icon's own `#f7f3e8`, not the app's
-`#fcfcf9` page colour. Every file in `AppIcon.appiconset` is a JPEG carrying a
-`.png` extension, so the icon has no alpha channel and paints an opaque square
-wherever it lands. Matching the ground is what hides that square. Two
-consequences: the volume icon is built by converting those files with `sips`,
-because `iconutil` rejects them as-is, and if the icon is ever regenerated with
-transparency the ground should go back to `#fcfcf9`.
+The background's ground is the app's `#fcfcf9`, which has to differ from the
+icon's cream body or the icon would have no visible edges. It was briefly
+matched to that cream instead, back when the icons were JPEGs with no alpha and
+the match was the only way to hide the opaque square they painted; both the
+match and the `sips` conversion `iconutil` needed went when the icons became
+real PNGs. See [the app icon](#the-app-icon).
 
 Shipping an image changes where the app lands, not whether it opens. Quarantine
 attaches to the downloaded image and files dragged out of it inherit the flag,
