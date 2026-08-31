@@ -36,8 +36,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Setup NSStatusItem
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.title = "●"
-            button.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            // A symbol image rather than a "●" text glyph, so the size and
+            // baseline no longer come from the system font — it cannot shift if
+            // the font resolves differently, and AppKit centres it rather than
+            // a text baseline deciding where it sits.
+            //
+            // Only single marks survive up here. `checklist` was tried and
+            // rejected: it packs two rows of circle-and-line into the menu
+            // bar's ~17pt, so each row gets about 7pt and the circles collapse
+            // into broken arcs. Every one of the system's own menu bar items is
+            // a single shape, presumably for the same reason.
+            //
+            // A tick rather than the old dot, because a dot says nothing about
+            // the app. Swapping it is one string: circle.fill at 10pt is the
+            // previous look exactly, and smallcircle.filled.circle or
+            // list.bullet at 13pt are the other legible options.
+            //
+            // Bold rather than regular. Heavy was tried and is a step too far:
+            // at this size its strokes merge at the vertex and the tick reads
+            // as a blob. Semibold is the lighter option if bold looks heavy
+            // beside the rest of your menu bar.
+            let icon = NSImage(
+                systemSymbolName: "checkmark",
+                accessibilityDescription: "Rapid Log"
+            )?.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+            )
+            // Set on the image actually used, not on the one it derived from.
+            // Symbols are templates by default and the flag survives the
+            // configuration, but neither is worth depending on silently.
+            icon?.isTemplate = true
+            button.image = icon
+
+            // Kept as a fallback: if the symbol were ever unavailable, an empty
+            // button would be an invisible, unclickable menu bar item.
+            if button.image == nil {
+                button.title = "●"
+                button.font = NSFont.systemFont(ofSize: 11, weight: .bold)
+            }
             button.action = #selector(statusItemClicked(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
