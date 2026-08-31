@@ -31,7 +31,6 @@ cd "$REPO_ROOT"
 DERIVED="macos/build/DerivedData"
 APP="$DERIVED/Build/Products/Release/RapidLog.app"
 OUT="macos/build/artifacts"
-STAGE="macos/build/dmg-stage"
 VENV="macos/build/venv"
 DMGDIR="macos/dmg"
 APPICONS="macos/RapidLog/Assets.xcassets/AppIcon.appiconset"
@@ -105,8 +104,8 @@ fi
 ok "no bundled web assets"
 
 step "Preparing the disk image assets"
-rm -rf "$OUT" "$STAGE"
-mkdir -p "$OUT" "$STAGE"
+rm -rf "$OUT"
+mkdir -p "$OUT"
 
 # dmgbuild lives in a venv under build/ rather than being installed globally, so
 # a clone needs no setup step and a runner needs no extra install. It is not
