@@ -86,6 +86,29 @@ const glyphStyle = (type: EntryType): React.CSSProperties => {
   };
 };
 
+// The same star the composer toggle and the context menu already draw, so what
+// you press is what appears on the line. It replaces a literal "*", which most
+// typefaces hang near the top of the line box — beside a 20px checkbox that
+// read as a speck floating above the row rather than a marker on it.
+//
+// `muted` is for a completed row, which is deliberately faded: an amber star
+// there would be the loudest thing on a line that is meant to be quiet.
+const PriorityStar: React.FC<{ muted?: boolean }> = ({ muted }) => (
+  <Star
+    size={14}
+    fill="currentColor"
+    className={muted ? 'text-neutral-300' : 'text-amber-500'}
+  />
+);
+
+// Always occupies its 16px whether or not there is a star in it, so a flagged
+// line and an unflagged one start their text at the same place.
+const PrioritySlot: React.FC<{ on: boolean; muted?: boolean }> = ({ on, muted }) => (
+  <span className="w-4 flex justify-center flex-shrink-0">
+    {on && <PriorityStar muted={muted} />}
+  </span>
+);
+
 // A little overshoot, so starring a line reads as a press rather than a repaint.
 const POP = [0.34, 1.56, 0.64, 1] as const;
 const TIME_IDS: TimeOfDay[] = ['morning', 'noon', 'night'];
@@ -1815,8 +1838,7 @@ export default function App() {
                       >
                         {entry.type !== 'note' && (
                           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-                            {entry.priority && <span className="text-amber-500 w-4 font-bold text-lg leading-none">*</span>}
-                            {!entry.priority && <span className="w-4" />}
+                            <PrioritySlot on={entry.priority} />
                             
                             {entry.type === 'task' ? (
                               <button
@@ -1863,7 +1885,18 @@ export default function App() {
                             )}
                           </div>
                         )}
-                        
+
+                        {/* A note carries no bullet — its rail is its mark — so
+                            it gets the star on its own, and only when there is
+                            one to show. Without this the context menu offers
+                            "Mark Priority" on a note, saves it, and the row
+                            never says so. */}
+                        {entry.type === 'note' && entry.priority && (
+                          <div className="flex items-center flex-shrink-0 mt-1 mr-2">
+                            <PriorityStar />
+                          </div>
+                        )}
+
                         <div className={`flex-1 min-w-0 flex flex-col items-start text-lg leading-relaxed pt-0.5 ${entry.type === 'note' ? 'italic text-neutral-600' : ''}`}>
                           <div className="w-full min-w-0">
                           {editingId === entry.id ? (
@@ -1984,8 +2017,7 @@ export default function App() {
                       className="flex items-start gap-4 py-2 px-3 -mx-3 rounded-lg group hover:bg-neutral-50/30"
                     >
                       <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-                        {entry.priority && <span className="w-4" />}
-                        {!entry.priority && <span className="w-4" />}
+                        <PrioritySlot on={entry.priority} muted />
                         <button
                           onClick={() => toggleTodo(entry.id)}
                           style={glyphStyle('task')}
