@@ -17,3 +17,7 @@ coverage/
 # Xcode per-user window and editor state
 xcuserdata/
 *.xcuserstate
+
+# /graphify knowledge-graph output — a derived snapshot of the code, rebuilt on
+# demand with `/graphify . --update`. Nothing here is source.
+graphify-out/
