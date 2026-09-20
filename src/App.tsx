@@ -60,7 +60,13 @@ const GLYPH_SHAPE: Record<EntryType, {
   backgroundColor: string; marginLeft: number;
 }> = {
   task: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
-  event: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
+  // Filled and small, deliberately. An outlined circle the size of the
+  // checkbox beside it reads as a control waiting to be ticked; filling it
+  // removes that invitation. Half the checkbox's size, because a 16px black
+  // circle would instead read as a *completed* task — that row is 20px and
+  // solid neutral-900 in the same column. The gap in size is what says "a
+  // different kind of thing" rather than "the same thing in another state".
+  event: { width: 8, height: 8, borderRadius: 4, borderWidth: 0, backgroundColor: 'rgba(23,23,23,1)', marginLeft: 0 },
   note: { width: 2, height: 22, borderRadius: 1, borderWidth: 0, backgroundColor: 'rgba(229,229,229,1)', marginLeft: 8 }
 };
 
@@ -74,7 +80,14 @@ const GLYPH_SHAPE: Record<EntryType, {
 // and `box-border`: a caller that forgot either would get an invisible border
 // or a box 4px too wide, and a silent one-place-only break is exactly what
 // this function exists to prevent.
-const glyphStyle = (type: EntryType): React.CSSProperties => {
+// `fill` is opt-in rather than always applied, because a task checkbox's
+// background is state and not shape: the list paints it neutral-900 through a
+// class once the entry is complete, and an inline backgroundColor from here
+// would beat that class and leave every completed box empty.
+const glyphStyle = (
+  type: EntryType,
+  opts?: { fill?: boolean },
+): React.CSSProperties => {
   const g = GLYPH_SHAPE[type];
   return {
     width: g.width,
@@ -83,6 +96,7 @@ const glyphStyle = (type: EntryType): React.CSSProperties => {
     borderWidth: g.borderWidth,
     borderStyle: 'solid',
     boxSizing: 'border-box',
+    ...(opts?.fill ? { backgroundColor: g.backgroundColor } : {}),
   };
 };
 
@@ -1868,18 +1882,24 @@ export default function App() {
                                 )}
                               </button>
                             ) : (
-                              // A drawn circle rather than a "○" glyph. The
+                              // A drawn dot rather than a "○" glyph. The
                               // character's diameter, stroke weight and baseline
                               // all came from whichever font resolved, so it
-                              // seldom matched the task checkbox beside it and
-                              // sat off the line. This is the same GLYPH_SHAPE
-                              // entry the composer animates to, wearing the
-                              // checkbox's own border, so a task and an event
-                              // read as one family.
-                              <span className="w-6 flex justify-center mt-0.5">
+                              // seldom matched the checkbox beside it and sat
+                              // off the line. This is the same GLYPH_SHAPE entry
+                              // the composer animates to.
+                              //
+                              // The slot is the checkbox's own height so the
+                              // dot's centre lands where a checkbox's centre
+                              // does — the marker column stays straight even
+                              // though the two markers are different sizes.
+                              <span
+                                className="w-6 flex items-center justify-center mt-0.5"
+                                style={{ height: GLYPH_SHAPE.task.height }}
+                              >
                                 <span
-                                  style={glyphStyle('event')}
-                                  className="block border-neutral-300"
+                                  style={glyphStyle('event', { fill: true })}
+                                  className="block"
                                 />
                               </span>
                             )}
