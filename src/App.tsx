@@ -64,6 +64,28 @@ const GLYPH_SHAPE: Record<EntryType, {
   note: { width: 2, height: 22, borderRadius: 1, borderWidth: 0, backgroundColor: 'rgba(229,229,229,1)', marginLeft: 8 }
 };
 
+// The log list draws the same bullets the composer animates between, so it
+// reads their geometry from GLYPH_SHAPE rather than restating it. Tailwind
+// builds classes from literal strings and cannot turn a number held in a
+// constant into `w-5`, so size and radius travel through `style` while colour
+// and interaction stay in classes — the split the composer already uses.
+//
+// borderStyle and boxSizing are set here rather than left to `border-solid`
+// and `box-border`: a caller that forgot either would get an invisible border
+// or a box 4px too wide, and a silent one-place-only break is exactly what
+// this function exists to prevent.
+const glyphStyle = (type: EntryType): React.CSSProperties => {
+  const g = GLYPH_SHAPE[type];
+  return {
+    width: g.width,
+    height: g.height,
+    borderRadius: g.borderRadius,
+    borderWidth: g.borderWidth,
+    borderStyle: 'solid',
+    boxSizing: 'border-box',
+  };
+};
+
 // A little overshoot, so starring a line reads as a press rather than a repaint.
 const POP = [0.34, 1.56, 0.64, 1] as const;
 const TIME_IDS: TimeOfDay[] = ['morning', 'noon', 'night'];
@@ -1799,7 +1821,8 @@ export default function App() {
                             {entry.type === 'task' ? (
                               <button
                                 onClick={() => toggleTodo(entry.id)}
-                                className={`w-5 h-5 border-2 rounded flex items-center justify-center transition-colors duration-200 cursor-pointer mt-0.5 ${
+                                style={glyphStyle('task')}
+                                className={`flex items-center justify-center transition-colors duration-200 cursor-pointer mt-0.5 ${
                                   entry.completed
                                     ? 'border-neutral-900 bg-neutral-900'
                                     : 'border-neutral-300 hover:border-neutral-900'
@@ -1827,12 +1850,15 @@ export default function App() {
                               // character's diameter, stroke weight and baseline
                               // all came from whichever font resolved, so it
                               // seldom matched the task checkbox beside it and
-                              // sat off the line. This is GLYPH_SHAPE.event —
-                              // the same 16px circle the composer animates to —
-                              // with the checkbox's own border, so a task and an
-                              // event read as one family.
+                              // sat off the line. This is the same GLYPH_SHAPE
+                              // entry the composer animates to, wearing the
+                              // checkbox's own border, so a task and an event
+                              // read as one family.
                               <span className="w-6 flex justify-center mt-0.5">
-                                <span className="w-4 h-4 rounded-full border-2 border-neutral-300" />
+                                <span
+                                  style={glyphStyle('event')}
+                                  className="block border-neutral-300"
+                                />
                               </span>
                             )}
                           </div>
@@ -1962,7 +1988,8 @@ export default function App() {
                         {!entry.priority && <span className="w-4" />}
                         <button
                           onClick={() => toggleTodo(entry.id)}
-                          className="w-5 h-5 border-2 border-neutral-900 bg-neutral-900 rounded flex items-center justify-center transition-colors cursor-pointer mt-0.5"
+                          style={glyphStyle('task')}
+                          className="border-neutral-900 bg-neutral-900 flex items-center justify-center transition-colors cursor-pointer mt-0.5"
                         >
                           <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="4">
                             <polyline points="20 6 9 17 4 12" />
