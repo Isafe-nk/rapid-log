@@ -30,11 +30,6 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
-const BULLETS = {
-  event: '○',
-  priority: '∗'
-};
-
 const TIMES_OF_DAY: { id: TimeOfDay; label: string }[] = [
   { id: 'morning', label: 'Morning' },
   { id: 'noon', label: 'Noon' },
@@ -1828,8 +1823,16 @@ export default function App() {
                                 )}
                               </button>
                             ) : (
-                              <span className="w-6 flex justify-center text-xl leading-none text-neutral-400">
-                                {BULLETS.event}
+                              // A drawn circle rather than a "○" glyph. The
+                              // character's diameter, stroke weight and baseline
+                              // all came from whichever font resolved, so it
+                              // seldom matched the task checkbox beside it and
+                              // sat off the line. This is GLYPH_SHAPE.event —
+                              // the same 16px circle the composer animates to —
+                              // with the checkbox's own border, so a task and an
+                              // event read as one family.
+                              <span className="w-6 flex justify-center mt-0.5">
+                                <span className="w-4 h-4 rounded-full border-2 border-neutral-300" />
                               </span>
                             )}
                           </div>
