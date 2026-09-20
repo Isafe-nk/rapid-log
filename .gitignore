@@ -21,3 +21,7 @@ xcuserdata/
 # /graphify knowledge-graph output — a derived snapshot of the code, rebuilt on
 # demand with `/graphify . --update`. Nothing here is source.
 graphify-out/
+
+# Per-machine editor settings. Nothing here is shared config — the one file that
+# appeared recorded an absolute path to a single developer's home directory.
+.vscode/
