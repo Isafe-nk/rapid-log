@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0C158486D3746BA752E09470 /* RapidLogApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3517BC4DC514C8F17D2A2F /* RapidLogApp.swift */; };
+		A05E09C0384E1ABBD687C44B /* GoogleAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 172A7EF1D459B002176DB072 /* GoogleAuth.swift */; };
 		A0ADA2E9B05A4F9968801B58 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C4B0E9338E3BE3D2ABF2414D /* Assets.xcassets */; };
 		CF1203B89097105AF5F27B1F /* MenuBarPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7DB37FC8B11E2E6E0DE4D5B /* MenuBarPopover.swift */; };
 		D5DE1F90ECFF5F3C166E5654 /* MenuBarViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1175AA9C81E2AC594205900C /* MenuBarViewModel.swift */; };
@@ -16,6 +17,7 @@
 
 /* Begin PBXFileReference section */
 		1175AA9C81E2AC594205900C /* MenuBarViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarViewModel.swift; sourceTree = "<group>"; };
+		172A7EF1D459B002176DB072 /* GoogleAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleAuth.swift; sourceTree = "<group>"; };
 		327D7B487859E28EFC85BB1E /* RapidLog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RapidLog.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		768193A15FC5515887706A3F /* RapidLog.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RapidLog.entitlements; sourceTree = "<group>"; };
 		AF3517BC4DC514C8F17D2A2F /* RapidLogApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RapidLogApp.swift; sourceTree = "<group>"; };
@@ -46,6 +48,7 @@
 			children = (
 				C4B0E9338E3BE3D2ABF2414D /* Assets.xcassets */,
 				EC57ED4F18836FA101685149 /* ContentView.swift */,
+				172A7EF1D459B002176DB072 /* GoogleAuth.swift */,
 				B7DB37FC8B11E2E6E0DE4D5B /* MenuBarPopover.swift */,
 				1175AA9C81E2AC594205900C /* MenuBarViewModel.swift */,
 				768193A15FC5515887706A3F /* RapidLog.entitlements */,
@@ -125,6 +128,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F114A164E0B726F1AE2997FC /* ContentView.swift in Sources */,
+				A05E09C0384E1ABBD687C44B /* GoogleAuth.swift in Sources */,
 				CF1203B89097105AF5F27B1F /* MenuBarPopover.swift in Sources */,
 				D5DE1F90ECFF5F3C166E5654 /* MenuBarViewModel.swift in Sources */,
 				0C158486D3746BA752E09470 /* RapidLogApp.swift in Sources */,
