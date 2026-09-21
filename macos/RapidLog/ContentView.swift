@@ -8,6 +8,10 @@ class WebEngine: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHa
     let viewModel: MenuBarViewModel
     let webView: WKWebView
 
+    /// Sign-in happens outside this web view. See GoogleAuth.swift for why a
+    /// passkey can never be used inside one.
+    private let googleAuth = GoogleAuth()
+
     private static let homeURL = URL(string: "https://to-do-rapidlog.web.app")!
 
     init(viewModel: MenuBarViewModel) {
@@ -27,6 +31,7 @@ class WebEngine: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHa
         super.init()
 
         config.userContentController.add(self, name: "taskUpdate")
+        config.userContentController.add(self, name: "googleSignIn")
         webView.navigationDelegate = self
         webView.uiDelegate = self
 
@@ -64,6 +69,51 @@ class WebEngine: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHa
                 self.viewModel.updateFromJSON(jsonString)
             }
         }
+
+        if message.name == "googleSignIn" {
+            DispatchQueue.main.async { self.startGoogleSignIn() }
+        }
+    }
+
+    /// Runs the system sign-in sheet, then hands the ID token to the page,
+    /// which trades it for a Firebase session. The page is waiting on a promise
+    /// that only this call can settle, so every path here must report back —
+    /// including the failures, or the button spins for ever.
+    private func startGoogleSignIn() {
+        googleAuth.signIn { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let idToken):
+                    self?.deliverSignIn(idToken: idToken, error: nil)
+                case .failure(let error):
+                    print("[RapidLog] Google sign-in failed: \(error.localizedDescription)")
+                    self?.deliverSignIn(idToken: nil, error: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func deliverSignIn(idToken: String?, error: String?) {
+        // JSON-encoded rather than interpolated into quotes. A token is base64url
+        // and safe, but an error message is arbitrary text and a stray apostrophe
+        // would turn this into a syntax error that silently does nothing.
+        func literal(_ value: String?) -> String {
+            guard let value = value else { return "null" }
+            guard
+                let data = try? JSONSerialization.data(
+                    withJSONObject: [value],
+                    options: [.fragmentsAllowed]
+                ),
+                let array = String(data: data, encoding: .utf8)
+            else { return "null" }
+            return String(array.dropFirst().dropLast())
+        }
+
+        let js = """
+            window.__nativeGoogleSignInResult \
+            && window.__nativeGoogleSignInResult(\(literal(idToken)), \(literal(error)));
+            """
+        webView.evaluateJavaScript(js)
     }
 
     // MARK: - WKUIDelegate

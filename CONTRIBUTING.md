@@ -107,6 +107,62 @@ Console: https://console.cloud.google.com/apis/credentials?project=to-do-rapidlo
 
 If sign-in ever fails with `redirect_uri_mismatch`, check that list first.
 
+### The Mac app signs in outside its own web view
+
+Everything above describes the **web** path, which the iOS app also uses. The
+Mac app does not: it runs the whole flow in a system browser sheet and hands
+the result back to the page.
+
+The reason is passkeys. An embedded `WKWebView` runs in the host app's context,
+so a WebAuthn ceremony only succeeds for a domain that app has claimed through
+Associated Domains — and `google.com` is not ours to claim. Google's "Use your
+passkey to confirm it's really you" screen appears, the device is never asked,
+and the only way through is *More ways to verify*. No configuration fixes this;
+the entitlement that would is not one this app can hold.
+
+[`GoogleAuth.swift`](macos/RapidLog/GoogleAuth.swift) uses
+`ASWebAuthenticationSession` instead, which runs in the default browser's
+context with the full web platform available. It also means the app can no
+longer read the page the password is typed into — the reason Google discourages
+embedded web views generally.
+
+```
+Swift   ASWebAuthenticationSession  →  authorization code   (passkeys work here)
+Swift   POST oauth2.googleapis.com/token  (code + PKCE verifier)  →  id_token
+Swift   evaluateJavaScript → window.__nativeGoogleSignInResult(idToken, null)
+TS      signInWithCredential(auth, GoogleAuthProvider.credential(idToken))
+```
+
+Installed apps cannot ask Google for an `id_token` directly — `response_type`
+must be `code` — hence the exchange. There is no server in it: the OAuth client
+is an **iOS** client, which carries no secret, and the PKCE verifier stands in
+for one. A *Desktop* client would have shipped a secret inside the binary.
+
+**Two console settings make this work, and neither lives in this repo.**
+Sign-in fails without either:
+
+| Where | What |
+| --- | --- |
+| Google Cloud → Credentials | An **iOS** OAuth client with bundle id `com.limky.rapidlog`. Its id goes in `GoogleAuth.clientID`. |
+| Firebase → Authentication → Sign-in method → Google | **Whitelist client IDs from external projects** → add that same id. |
+
+The second is the one that is easy to miss. Firebase checks the `aud` of the
+token it is given and rejects one issued for a client it does not recognise,
+with an audience-mismatch error that says nothing about this setting.
+
+`GoogleAuth.clientID` ships as a `REPLACE_WITH_…` placeholder. Until it is
+filled in, the Mac app reports "This build has no Google client id" rather than
+opening an empty browser sheet. The client id is not a secret — it names the
+application and authorises nothing on its own.
+
+No `Info.plist` entry is needed. `ASWebAuthenticationSession` intercepts the
+redirect itself through `callbackURLScheme`, so the reversed-client-id scheme
+is passed to the session rather than registered with the system.
+
+If the Mac app is older than the web app and has no `googleSignIn` bridge, the
+web code falls back to the redirect flow — sign-in still works there, passkeys
+aside.
+
 ## The app icon
 
 ```
