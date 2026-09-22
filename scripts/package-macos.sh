@@ -28,7 +28,12 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-DERIVED="macos/build/DerivedData"
+# .noindex, deliberately: Spotlight skips any directory whose name ends that way
+# — it is why Xcode calls its own index directory Index.noindex. Without it every
+# build registers a second RapidLog.app, and searching for the app offers the
+# build product alongside the installed one. Launching the wrong copy is
+# indistinguishable from a new build not working.
+DERIVED="macos/build/DerivedData.noindex"
 APP="$DERIVED/Build/Products/Release/RapidLog.app"
 OUT="macos/build/artifacts"
 VENV="macos/build/venv"
@@ -98,7 +103,14 @@ ok "signature verifies"
 
 # The shell is meant to load the deployed site, not carry a copy of it. A stray
 # bundle here would mean users running frozen assets forever.
-if find "$APP" \( -name '*.html' -o -name '*.js' -o -name '*.css' \) | grep -q .; then
+# Captured rather than piped into `grep -q`. Under `set -o pipefail` a grep that
+# exits on its first match closes the pipe, the producer dies of SIGPIPE, and the
+# pipeline reports failure — so a gate written that way reads a positive find as
+# "nothing here" and passes. The more files there are, the more likely it is,
+# which is precisely when this check matters.
+BUNDLED_WEB="$(find "$APP" \( -name '*.html' -o -name '*.js' -o -name '*.css' \) 2>/dev/null || true)"
+if [ -n "$BUNDLED_WEB" ]; then
+  echo "$BUNDLED_WEB" | sed 's/^/   /' >&2
   fail "the app bundles web assets; it should load them over the network"
 fi
 ok "no bundled web assets"
