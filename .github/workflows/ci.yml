@@ -99,3 +99,19 @@ jobs:
             exit 1
           fi
           echo "dist is servable"
+
+      - name: No unfinished placeholders in published pages
+        run: |
+          set -euo pipefail
+          # The privacy and terms pages carry a REPLACE_WITH_ contact address
+          # until the owner fills it in. Publishing a policy that tells people
+          # to email REPLACE_WITH_CONTACT_EMAIL is worse than having no policy,
+          # and Google requires a working contact to approve the consent screen.
+          FOUND="$(grep -rl 'REPLACE_WITH_' dist 2>/dev/null || true)"
+          if [ -n "$FOUND" ]; then
+            echo "::error::A published page still contains a REPLACE_WITH_ placeholder."
+            echo "$FOUND" | sed 's/^/  /'
+            grep -rno 'REPLACE_WITH_[A-Z_]*' dist 2>/dev/null | sed 's/^/    /' || true
+            exit 1
+          fi
+          echo "no placeholders in dist"

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Privacy — Rapid Log</title>
+    <meta name="description" content="What Rapid Log collects, where it is stored, and what it never does." />
+    <meta name="theme-color" content="#fcfcf9" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7.4' fill='%23f7f3e8'/%3E%3Ccircle cx='6.4' cy='10.4' r='1.9' fill='%23292725'/%3E%3Cg fill='%23cbc6c3'%3E%3Crect x='12.1' y='9.2' width='15.9' height='1.8' rx='0.9'/%3E%3Crect x='12.1' y='15.1' width='15.9' height='1.8' rx='0.9'/%3E%3Crect x='12.1' y='20.8' width='15.9' height='1.8' rx='0.9'/%3E%3C/g%3E%3Cpath d='M4.2 21.4L5.9 23.3L9.5 19.4' fill='none' stroke='%23292725' stroke-width='1.1' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <style>
+      /* No build step and no JavaScript: this page has to keep working when the
+         app does not, and a privacy policy that fails to load is worse than a
+         plain one. Tokens are the app's own — see
+         .agents/skills/paper-typewriter-design/SKILL.md */
+      :root {
+        --paper: #fcfcf9;
+        --ink: #1a1a1a;
+        --muted: #8f8f85;
+        --faint: #c4c4bd;
+        --rule: #ebebe6;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", monospace;
+        font-size: 15px;
+        line-height: 1.75;
+        padding: 0 20px env(safe-area-inset-bottom, 0px);
+      }
+      /* The app's dot grid, at the same opacity and pitch. */
+      .grid {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.03;
+        background-image: radial-gradient(#000 1px, transparent 0);
+        background-size: 24px 24px;
+      }
+      main {
+        position: relative;
+        max-width: 660px;
+        margin: 0 auto;
+        padding: 72px 0 96px;
+      }
+      .eyebrow {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.26em;
+        color: var(--faint);
+        margin: 0 0 28px;
+      }
+      h1 {
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin: 0 0 10px;
+      }
+      .updated {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      .lede {
+        color: var(--muted);
+        margin: 0 0 56px;
+      }
+      h2 {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.24em;
+        color: var(--ink);
+        margin: 52px 0 16px;
+        padding-top: 22px;
+        border-top: 1px solid var(--rule);
+      }
+      p { margin: 0 0 16px; }
+      ul { margin: 0 0 16px; padding-left: 0; list-style: none; }
+      li { position: relative; padding-left: 22px; margin-bottom: 10px; }
+      /* A filled dot, the same mark the log list uses for an event. */
+      li::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: 0.72em;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--ink);
+      }
+      strong { font-weight: 700; }
+      a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--faint); }
+      a:hover { text-decoration-color: var(--ink); }
+      .note {
+        border-left: 4px solid var(--rule);
+        padding: 2px 0 2px 20px;
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 64px;
+        padding-top: 22px;
+        border-top: 1px solid var(--rule);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        color: var(--faint);
+      }
+      footer a { color: var(--muted); text-decoration-color: var(--rule); }
+      @media (max-width: 480px) {
+        main { padding: 48px 0 72px; }
+        h1 { font-size: 22px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid"></div>
+    <main>
+      <p class="eyebrow">Rapid Log</p>
+      <h1>Privacy</h1>
+      <p class="updated">Last updated 22 September 2026</p>
+      <p class="lede">
+        Rapid Log is a daily log. It keeps what you write and the account you
+        signed in with, and nothing else. There is no analytics, no tracking and
+        no advertising anywhere in it.
+      </p>
+
+      <h2>What is collected</h2>
+      <p>Only two things.</p>
+      <ul>
+        <li>
+          <strong>Your Google account details</strong>, if you sign in — your
+          name, email address, profile picture and Google account ID. These come
+          from Google when you choose to sign in and are held by Firebase
+          Authentication.
+        </li>
+        <li>
+          <strong>The entries you write</strong> — their text, whether each is a
+          task, event or note, which section of the day it belongs to, any start
+          or end time you set, whether you marked it a priority, and when it was
+          created. These are stored in Cloud Firestore.
+        </li>
+      </ul>
+      <p>
+        That is the whole list. Nothing is inferred about you, and nothing is
+        collected in the background.
+      </p>
+
+      <h2>Using it as a guest</h2>
+      <p>
+        If you continue as a guest, <strong>nothing leaves your browser</strong>.
+        Entries live in the page's memory and are gone when you close it. They
+        are never sent anywhere.
+      </p>
+      <p class="note">
+        One exception, and only if you ask for it: choosing to sign in while you
+        have unsaved guest entries stores them briefly in your browser's own
+        local storage, so they survive the trip to Google and back. They are
+        cleared the moment they are saved to your account, and expire by
+        themselves after ten minutes.
+      </p>
+
+      <h2>What Rapid Log does not do</h2>
+      <ul>
+        <li>No analytics, and no tracking of any kind.</li>
+        <li>No advertising, and no profiling or targeting.</li>
+        <li>Nothing is sold, rented or shared with anyone.</li>
+        <li>No third-party services beyond Google, described below.</li>
+        <li>No cookies are set for tracking.</li>
+      </ul>
+
+      <h2>Where it is stored</h2>
+      <p>
+        On Google Cloud, through Firebase — Firebase Authentication for the
+        account, Cloud Firestore for the entries, and Firebase Hosting to serve
+        the app. Google processes this data on Rapid Log's behalf under its own
+        terms.
+      </p>
+      <p>
+        Access rules on the database name the owner of every entry, so an entry
+        can only be read or changed by the account that created it. Those rules
+        are public and can be read in the source code.
+      </p>
+      <p>
+        Firebase Hosting keeps ordinary web server logs — IP address, browser
+        and time of request — as any web server does.
+      </p>
+
+      <h2>Signing in with Google</h2>
+      <p>
+        Signing in asks Google only for your basic profile: name, email address
+        and picture. Rapid Log cannot read your Gmail, Drive, Calendar,
+        contacts, or anything else in your Google account, and never asks to.
+      </p>
+      <p>
+        You can withdraw that access at any time from
+        <a href="https://myaccount.google.com/permissions" rel="noopener">
+          your Google account permissions</a>.
+      </p>
+
+      <h2>Your data, your call</h2>
+      <ul>
+        <li>Delete any entry from inside the app; deletion is immediate and permanent.</li>
+        <li>Withdraw Rapid Log's access to your Google account at the link above.</li>
+        <li>
+          Ask for your account and everything in it to be deleted, by email —
+          see below.
+        </li>
+      </ul>
+
+      <h2>Children</h2>
+      <p>
+        Rapid Log is not directed at children under 13, and no information is
+        knowingly collected from them.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        If this policy changes, the date at the top changes with it. Rapid Log is
+        open source, so every revision is visible in its
+        <a href="https://github.com/Isafe-nk/rapid-log" rel="noopener">public
+        history</a>.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions, or a request to delete your data:
+        <a href="mailto:REPLACE_WITH_CONTACT_EMAIL">REPLACE_WITH_CONTACT_EMAIL</a>
+      </p>
+
+      <footer>
+        <a href="/">← Rapid Log</a> &nbsp;·&nbsp;
+        <a href="/terms/">Terms</a> &nbsp;·&nbsp;
+        <a href="https://github.com/Isafe-nk/rapid-log" rel="noopener">Source</a>
+      </footer>
+    </main>
+  </body>
+</html>
