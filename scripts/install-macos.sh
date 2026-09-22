@@ -132,7 +132,13 @@ BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$DEST/Contents/Inf
 printf '   version    %s (build %s)\n' "$VERSION" "$BUILD"
 printf '   arch       %s\n' "$(lipo -archs "$DEST/Contents/MacOS/RapidLog")"
 
-if strings "$DEST/Contents/MacOS/RapidLog" | grep -q 'apps.googleusercontent.com'; then
+# grep -c rather than grep -q. Under `set -o pipefail` a grep that exits on its
+# first match closes the pipe, `strings` dies of SIGPIPE, and the pipeline reports
+# failure — so the match is read as a miss. This line claimed a correctly built
+# app "predates native sign-in", which is the exact confusion the report exists
+# to prevent. -c reads all of its input, so nothing gets a broken pipe.
+CLIENT_HITS="$(strings "$DEST/Contents/MacOS/RapidLog" 2>/dev/null | grep -c 'apps.googleusercontent.com' || true)"
+if [ "${CLIENT_HITS:-0}" -gt 0 ]; then
   printf '   sign-in    native (system browser sheet)\n'
 else
   printf '   sign-in    in-page redirect — this build predates native sign-in\n'
