@@ -485,6 +485,12 @@ export default function App() {
   // heard back yet" — so the two are tracked apart. Showing the landing page on
   // the second one is what made it flash on every launch.
   const [authReady, setAuthReady] = useState(false);
+  // Set the moment sign-in is asked for, and left set until it resolves one way
+  // or the other. The Mac app needs it most: a system browser sheet closes
+  // several steps before the account actually arrives — a token exchange with
+  // Google, then one with Firebase, then the log itself — and without this the
+  // screen sits unchanged through all of it, looking as though the click missed.
+  const [signingIn, setSigningIn] = useState(false);
   const [redirectChecked, setRedirectChecked] = useState(!isNative());
   const [todosLoaded, setTodosLoaded] = useState(false);
   // Guest entries live in React state and nowhere else — no Firestore, no
@@ -575,9 +581,17 @@ export default function App() {
         console.error('Could not stash guest entries for sign-in:', error);
       }
     }
+    setSigningIn(true);
     try {
       await signInWithGoogle();
+      // Deliberately not cleared here. Succeeding only means Google and
+      // Firebase agreed; the account still has to arrive through
+      // onAuthStateChanged and the log still has to load, and the splash does
+      // not appear until it does. Dropping the pending state at this point
+      // would hand the user back an idle-looking button for that whole gap.
+      // This screen unmounts on success, which clears it.
     } catch (e: any) {
+      setSigningIn(false);
       const message = e?.code || e?.message || 'Sign in failed';
       setAuthError(message);
       // authError only renders on the sign-in screen, which a guest is past.
@@ -1221,12 +1235,21 @@ export default function App() {
               <div className="space-y-3">
                 <button
                   onClick={startSignIn}
-                  className="group w-full flex items-center justify-center gap-4 bg-white border border-neutral-100 py-4 px-6 rounded-2xl shadow-sm hover:shadow-md hover:border-neutral-200 transition-all active:scale-[0.98]"
+                  disabled={signingIn}
+                  className="group w-full flex items-center justify-center gap-4 bg-white border border-neutral-100 py-4 px-6 rounded-2xl shadow-sm hover:shadow-md hover:border-neutral-200 transition-all active:scale-[0.98] disabled:cursor-default disabled:shadow-sm disabled:hover:border-neutral-100 disabled:active:scale-100"
                 >
                   <div className="bg-neutral-50 p-2 rounded-lg group-hover:bg-neutral-100 transition-colors">
-                    <LogIn size={20} className="text-neutral-400 group-hover:text-neutral-900" />
+                    {signingIn ? (
+                      // The same ring the splash spins, so the wait reads as one
+                      // continuous thing rather than two different loaders.
+                      <span className="block w-5 h-5 border-2 border-neutral-100 border-t-neutral-900 rounded-full animate-spin" />
+                    ) : (
+                      <LogIn size={20} className="text-neutral-400 group-hover:text-neutral-900" />
+                    )}
                   </div>
-                  <span className="text-[11px] uppercase tracking-[0.2em] font-black text-neutral-600 group-hover:text-neutral-900">Sign in with Google</span>
+                  <span className="text-[11px] uppercase tracking-[0.2em] font-black text-neutral-600 group-hover:text-neutral-900">
+                    {signingIn ? 'Signing in' : 'Sign in with Google'}
+                  </span>
                 </button>
 
                 {guestAvailable && (
@@ -1378,11 +1401,16 @@ export default function App() {
                       the header heavier than anything in the log below it. */}
                   <button
                     onClick={startSignIn}
+                    disabled={signingIn}
                     title="Sign in to save these entries"
-                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-400 hover:text-neutral-900 transition-colors flex items-center gap-2 pr-1"
+                    className="shrink-0 whitespace-nowrap text-[9px] uppercase tracking-widest font-black text-neutral-400 hover:text-neutral-900 transition-colors flex items-center gap-2 pr-1 disabled:text-neutral-300 disabled:hover:text-neutral-300 disabled:cursor-default"
                   >
-                    Sign in to save
-                    <LogIn size={10} />
+                    {signingIn ? 'Signing in' : 'Sign in to save'}
+                    {signingIn ? (
+                      <span className="block w-2.5 h-2.5 border border-neutral-200 border-t-neutral-500 rounded-full animate-spin" />
+                    ) : (
+                      <LogIn size={10} />
+                    )}
                   </button>
                 </div>
               )}
