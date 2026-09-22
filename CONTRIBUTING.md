@@ -138,17 +138,31 @@ must be `code` — hence the exchange. There is no server in it: the OAuth clien
 is an **iOS** client, which carries no secret, and the PKCE verifier stands in
 for one. A *Desktop* client would have shipped a secret inside the binary.
 
-**Two console settings make this work, and neither lives in this repo.**
-Sign-in fails without either:
+**This needs an iOS OAuth client, which does not live in this repo.** The
+project's automatic client is a *Web* client; Apple apps need their own.
 
-| Where | What |
-| --- | --- |
-| Google Cloud → Credentials | An **iOS** OAuth client with bundle id `com.limky.rapidlog`. Its id goes in `GoogleAuth.clientID`. |
-| Firebase → Authentication → Sign-in method → Google | **Whitelist client IDs from external projects** → add that same id. |
+Firebase creates one for you, so there is no need to visit the Cloud console:
 
-The second is the one that is easy to miss. Firebase checks the `aud` of the
-token it is given and rejects one issued for a client it does not recognise,
-with an audience-mismatch error that says nothing about this setting.
+```
+Firebase Console → Project settings → Your apps → Add app → iOS
+  Bundle ID: com.limky.rapidlog
+```
+
+Registering the app provisions an OAuth 2.0 iOS client in the underlying Cloud
+project. Download `GoogleService-Info.plist`, read `CLIENT_ID` out of it, and
+put that in `GoogleAuth.clientID`. The plist itself is not needed — this code
+takes the id as a constant — but its `REVERSED_CLIENT_ID` is a useful check
+that it matches the scheme `GoogleAuth` derives.
+
+The iOS app shares this bundle id, so one registration covers both Apple
+shells.
+
+There is also a **Whitelist client IDs from external projects** field under
+Firebase → Authentication → Sign-in method → Google. It is for clients that
+live in a *different* project, so a client Firebase created here does not need
+it. If sign-in ever fails with an audience mismatch — Firebase checking the
+`aud` of the token and not recognising the client — that field is the fix, and
+the error says nothing about it.
 
 `GoogleAuth.clientID` ships as a `REPLACE_WITH_…` placeholder. Until it is
 filled in, the Mac app reports "This build has no Google client id" rather than
