@@ -45,7 +45,8 @@ final class GoogleAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
     /// Authentication → Sign-in method → Google → **Whitelist client IDs from
     /// external projects**. A client created in this project should not need
     /// it, and the error will not mention the setting.
-    static let clientID = "REPLACE_WITH_IOS_OAUTH_CLIENT_ID.apps.googleusercontent.com"
+    static let clientID =
+        "837394148361-tq9qmv709ae2cr2kefv95caegkkop11v.apps.googleusercontent.com"
 
     static var isConfigured: Bool { !clientID.hasPrefix("REPLACE_WITH_") }
 
