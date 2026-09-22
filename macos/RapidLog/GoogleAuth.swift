@@ -33,14 +33,18 @@ final class GoogleAuth: NSObject, ASWebAuthenticationPresentationContextProvidin
     /// Not sensitive. A client id names the application; it authorises nothing
     /// on its own, which is why PKCE is required alongside it.
     ///
-    /// Two console steps go with this value. Sign-in fails without either:
+    /// To get one: Firebase Console → Project settings → Your apps → Add app →
+    /// iOS, with bundle id `com.limky.rapidlog`. Registering the app
+    /// provisions the OAuth client in the underlying Cloud project, so the
+    /// Cloud console is not needed. Read `CLIENT_ID` out of the downloaded
+    /// GoogleService-Info.plist and paste it here; the plist itself is not
+    /// used, though its `REVERSED_CLIENT_ID` should match `redirectScheme`
+    /// below.
     ///
-    ///  1. Google Cloud → Credentials → Create an **iOS** OAuth client with
-    ///     bundle id `com.limky.rapidlog`, and paste its id here.
-    ///  2. Firebase → Authentication → Sign-in method → Google → **Whitelist
-    ///     client IDs from external projects** → add that same id. Firebase
-    ///     checks the `aud` of the token it is handed and rejects one issued
-    ///     for a client it does not recognise.
+    /// If sign-in fails with an audience mismatch, add this id under Firebase →
+    /// Authentication → Sign-in method → Google → **Whitelist client IDs from
+    /// external projects**. A client created in this project should not need
+    /// it, and the error will not mention the setting.
     static let clientID = "REPLACE_WITH_IOS_OAUTH_CLIENT_ID.apps.googleusercontent.com"
 
     static var isConfigured: Bool { !clientID.hasPrefix("REPLACE_WITH_") }
