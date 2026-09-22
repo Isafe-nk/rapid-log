@@ -103,6 +103,29 @@ ok "installed to $DEST"
 xattr -d com.apple.quarantine "$DEST" 2>/dev/null || true
 ok "quarantine cleared"
 
+step "Making the installed copy the only one macOS offers"
+# Every build registers itself with Launch Services, so Spotlight ends up
+# offering a DerivedData copy — and launching the wrong one looks exactly like
+# the new build not working. Unregistering is not deletion: the next build
+# re-registers itself, which is why this runs on every install rather than once.
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREG" ]; then
+  FORGOT=0
+  while IFS= read -r other; do
+    [ -z "$other" ] && continue
+    [ "$other" = "$DEST" ] && continue
+    "$LSREG" -u "$other" 2>/dev/null && FORGOT=$((FORGOT + 1))
+  done <<EOF
+$("$LSREG" -dump 2>/dev/null \
+    | sed -n 's/^[[:space:]]*path:[[:space:]]*\(.*RapidLog\.app\)[[:space:]]*(0x[0-9a-f]*)$/\1/p' \
+    | sort -u)
+EOF
+  "$LSREG" -f "$DEST" 2>/dev/null || true
+  [ "$FORGOT" -gt 0 ] && ok "forgot $FORGOT other copy/copies" || ok "no other copies registered"
+else
+  ok "lsregister unavailable — skipped"
+fi
+
 step "What is now installed"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST/Contents/Info.plist")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$DEST/Contents/Info.plist")"
