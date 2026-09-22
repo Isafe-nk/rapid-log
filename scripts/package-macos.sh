@@ -244,5 +244,23 @@ step "Gatekeeper (recorded, not enforced)"
 # certificate and notarization, not a change here.
 spctl -a -t exec -vv "$MOUNT/RapidLog.app" 2>&1 | sed 's/^/   /' || true
 
+step "Tidying up"
+# xcodebuild registers the app it just built with Launch Services, so every build
+# puts a second RapidLog into app search. Launching the build product instead of
+# the installed app is indistinguishable from a new build not working, which is
+# the worst confusion to have while testing one.
+#
+# Naming the directory .noindex keeps it out of Spotlight's metadata index but
+# not out of Launch Services, and app search reads the latter — so it has to be
+# unregistered explicitly. The disk image is the deliverable; by this point the
+# build product has done its job.
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREG" ]; then
+  "$LSREG" -u "$PWD/$APP" 2>/dev/null || true
+  ok "build product kept out of app search"
+else
+  ok "lsregister unavailable — skipped"
+fi
+
 printf '\n== Done. %s at %s\n' "$VERSION" "$OUT"
 ls -lh "$OUT" | tail -n +2 | sed 's/^/   /'
