@@ -241,6 +241,30 @@ The version is passed to `xcodebuild` as `MARKETING_VERSION` rather than read
 from `project.yml`, so that file's literal never takes part in a release. It
 had drifted a full minor version behind `package.json` before this existed.
 
+### Installing a build to test it
+
+```
+scripts/install-macos.sh            install what was just packaged, and launch
+scripts/install-macos.sh --reset    sign out first
+```
+
+Dragging the app out of the disk image by hand works, but it misleads in three
+ways this script handles:
+
+- **It is a menu bar app.** Closing the window does not quit it, so a copy can
+  still be running while you replace it — and you are then looking at the old
+  build wondering why nothing changed.
+- **Its web view data outlives it.** `~/Library/WebKit/com.limky.rapidlog` is
+  keyed to the bundle id, not the app copy, so a signed-in session survives
+  every reinstall. That is exactly wrong when the thing being tested is signing
+  in; `--reset` clears it.
+- **Every build calls itself the same version.** The script reports the build
+  number and checks the binary for the OAuth client id, so you can tell a
+  native-sign-in build from one that predates it.
+
+It also clears quarantine, which a recipient has to do by hand until the app is
+notarized. See [Signing](#signing).
+
 ### The disk image
 
 The disk image is the download. A zip left a bare `RapidLog.app` in
