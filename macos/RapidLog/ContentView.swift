@@ -49,13 +49,23 @@ class WebEngine: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHa
         load()
     }
 
-    /// Always revalidates the document. A cached index.html points at a stale
-    /// hashed bundle that Firebase still serves, so the app would silently run
-    /// old code after a deploy.
+    /// Loads on the server's own caching terms, which are already the right
+    /// ones: firebase.json serves `/` as `no-cache, must-revalidate`, so the
+    /// document is revalidated on every launch and cannot point at a stale
+    /// bundle, while the hashed assets beside it are `immutable` and can be
+    /// reused.
+    ///
+    /// This used to force `.reloadIgnoringLocalCacheData`, guarding against a
+    /// stale index.html. The guard was real but the server header already
+    /// provides it, and the policy applies to the whole load — so every launch
+    /// re-downloaded the JavaScript bundle as well. That is roughly 225 KB and
+    /// most of a second, paid on every single launch, to solve a problem that
+    /// was already solved.
+    ///
+    /// If the app ever appears to run old code after a deploy, check that
+    /// header before reaching for a cache policy here.
     func load() {
-        var request = URLRequest(url: Self.homeURL)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        webView.load(request)
+        webView.load(URLRequest(url: Self.homeURL))
         print("[RapidLog] Loading from: \(Self.homeURL)")
     }
 
