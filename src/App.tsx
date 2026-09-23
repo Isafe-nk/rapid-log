@@ -204,10 +204,15 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 // Each block arrives slightly after the one above it, so the page assembles
 // top-down instead of appearing all at once.
+//
+// The stagger used to run 0.1/0.18/0.26 at 0.55s each, so the log finished
+// settling about 1.26s after its data had arrived — on a fast connection you
+// were waiting for choreography rather than for anything to load. Halved: the
+// page still assembles downward, it just stops making you watch it.
 const reveal = (shown: boolean, delay: number) => ({
   initial: { opacity: 0, y: 14 },
   animate: shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 },
-  transition: { duration: 0.55, ease: EASE, delay: shown ? delay : 0 }
+  transition: { duration: 0.35, ease: EASE, delay: shown ? delay : 0 }
 });
 
 // How far back the live subscription reaches by default. Browsing further back
@@ -1287,7 +1292,7 @@ export default function App() {
             // Opaque from the first frame; fading in would flash the app behind.
             initial={{ opacity: 1 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.45, ease: EASE } }}
+            exit={{ opacity: 0, transition: { duration: 0.25, ease: EASE } }}
             className="fixed inset-0 z-[100] bg-[#fcfcf9] flex items-center justify-center"
           >
             {/* Held back a beat so a fast load never flashes a spinner. */}
@@ -1341,7 +1346,7 @@ export default function App() {
       )}
 
       <div className={`max-w-2xl mx-auto px-10 py-24 relative z-10 ${localOnly ? 'pt-28' : ''}`}>
-        <motion.header className="mb-16 relative" {...reveal(appVisible, 0.1)}>
+        <motion.header className="mb-16 relative" {...reveal(appVisible, 0)}>
           <div className="flex items-start justify-between">
             <div className="flex gap-4 items-start">
               <div className="flex flex-col">
@@ -1514,7 +1519,7 @@ export default function App() {
         </motion.header>
 
         {/* Input area */}
-        <motion.form onSubmit={addTodo} className="mb-20" {...reveal(appVisible, 0.18)}>
+        <motion.form onSubmit={addTodo} className="mb-20" {...reveal(appVisible, 0.06)}>
           <div className="flex flex-col gap-6 border-l-2 border-neutral-100 pl-6 py-2">
             <div className="flex items-center gap-3">
               <span className="w-6 flex justify-center flex-shrink-0">
@@ -1766,7 +1771,7 @@ export default function App() {
         </motion.form>
 
         {/* Sections */}
-        <motion.div className="space-y-20" {...reveal(appVisible, 0.26)}>
+        <motion.div className="space-y-20" {...reveal(appVisible, 0.12)}>
           {TIMES_OF_DAY.map((time) => {
             const timeTodos = activeTodos.filter(t => t.timeOfDay === time.id);
             return (
