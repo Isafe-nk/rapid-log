@@ -2124,17 +2124,42 @@ export default function App() {
                       }}
                       className="flex items-start gap-4 py-2 px-3 -mx-3 rounded-lg group hover:bg-neutral-50/30"
                     >
+                      {/* The archive used to draw a ticked checkbox beside
+                          every row whatever it was, so a completed event or
+                          note arrived here wearing a task's mark — and the
+                          checkbox was the only way back, which meant the one
+                          control the live list withholds from those types was
+                          the one the archive forced on them. Each entry keeps
+                          its own mark here; only a task keeps the checkbox. */}
                       <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                         <PrioritySlot on={entry.priority} muted />
-                        <button
-                          onClick={() => toggleTodo(entry.id)}
-                          style={glyphStyle('task')}
-                          className="border-neutral-900 bg-neutral-900 flex items-center justify-center transition-colors cursor-pointer mt-0.5"
-                        >
-                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="4">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        </button>
+                        {entry.type === 'task' ? (
+                          <button
+                            onClick={() => toggleTodo(entry.id)}
+                            style={glyphStyle('task')}
+                            className="border-neutral-900 bg-neutral-900 flex items-center justify-center transition-colors cursor-pointer mt-0.5"
+                            title="Mark incomplete"
+                          >
+                            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="4">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          </button>
+                        ) : (
+                          // Not a button: the live list gives neither of these
+                          // types a control, and inventing one here is what got
+                          // them into the archive in the first place. The slot
+                          // is the checkbox's height either way, so the marker
+                          // column stays straight down the page.
+                          <span
+                            className="w-6 flex items-center justify-center mt-0.5"
+                            style={{ height: GLYPH_SHAPE.task.height }}
+                          >
+                            <span
+                              style={glyphStyle(entry.type, { fill: true })}
+                              className={`block ${entry.type === 'event' ? 'opacity-30' : ''}`}
+                            />
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className="text-lg leading-relaxed pt-0.5 text-neutral-300 line-through decoration-neutral-200 truncate">
@@ -2150,9 +2175,23 @@ export default function App() {
                           {entry.timeOfDay}
                         </span>
                       </div>
+                      {/* An event or a note has no checkbox to un-tick, so
+                          without this the only way out of the archive would be
+                          the context menu — a way back that has to be guessed
+                          at. Tasks do not need it; theirs is the checkbox. */}
+                      {entry.type !== 'task' && (
+                        <button
+                          onClick={() => toggleTodo(entry.id)}
+                          className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-neutral-900 transition-all p-1 mt-0.5"
+                          title="Move back to the log"
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      )}
                       <button
                         onClick={() => deleteTodo(entry.id)}
                         className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-400 transition-all p-1 mt-0.5"
+                        title="Delete entry"
                       >
                         <Trash2 size={14} />
                       </button>

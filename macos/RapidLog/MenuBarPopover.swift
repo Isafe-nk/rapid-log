@@ -294,21 +294,30 @@ struct CompletedTaskRowView: View {
         Button {
             viewModel.toggleLocalTask(task.id)
         } label: {
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 ZStack {
                     if showsRestore {
                         Text("↺")
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
                             .foregroundStyle(.orange)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
-                    } else {
+                    } else if task.type == "task" {
                         Text("✓")
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.green)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    } else {
+                        // A green tick on an event or a note claimed it had
+                        // been ticked, and nothing in this app can tick one.
+                        // It keeps its own mark here, faded because the row is
+                        // done; hovering still offers the way back.
+                        BulletMark(type: task.type)
+                            .foregroundStyle(.tertiary)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
                 }
                 .frame(width: 14)
+                .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + RowFont.opticalCentre }
                 .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsRestore)
 
                 Text(task.text)
