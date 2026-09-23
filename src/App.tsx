@@ -2287,16 +2287,24 @@ export default function App() {
               <span>Edit Entry</span>
             </button>
 
-            <button
-              onClick={() => {
-                toggleTodo(contextMenu.todo.id);
-                setContextMenu(null);
-              }}
-              className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
-            >
-              <Check size={13} className={contextMenu.todo.completed ? "text-green-600" : "text-neutral-400"} />
-              <span>{contextMenu.todo.completed ? 'Mark Incomplete' : 'Mark Complete'}</span>
-            </button>
+            {/* Completion belongs to tasks — see docs/entry-lifecycle.md §2.
+                This item was the last place still offering it to everything,
+                and so the only way an event could reach the archive at all.
+                It stays visible on an already-completed entry of any type,
+                because entries completed before that was settled need a way
+                back out. */}
+            {(contextMenu.todo.type === 'task' || contextMenu.todo.completed) && (
+              <button
+                onClick={() => {
+                  toggleTodo(contextMenu.todo.id);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
+              >
+                <Check size={13} className={contextMenu.todo.completed ? "text-green-600" : "text-neutral-400"} />
+                <span>{contextMenu.todo.completed ? 'Mark Incomplete' : 'Mark Complete'}</span>
+              </button>
+            )}
 
             <button
               onClick={() => {
