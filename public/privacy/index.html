@@ -123,7 +123,7 @@
     <main>
       <p class="eyebrow">Rapid Log</p>
       <h1>Privacy</h1>
-      <p class="updated">Last updated 22 September 2026</p>
+      <p class="updated">Last updated 23 September 2026</p>
       <p class="lede">
         Rapid Log is a daily log. It keeps what you write and the account you
         signed in with, and nothing else. There is no analytics, no tracking and
@@ -191,6 +191,90 @@
         and time of request — as any web server does.
       </p>
 
+      <h2>Where in the world</h2>
+      <p>
+        The database region is <strong>nam5</strong>, a multi-region in the
+        <strong>United States</strong>. If you use Rapid Log from anywhere else,
+        your entries are stored in the United States and cross borders to get
+        there.
+      </p>
+      <p>
+        Google operates that infrastructure and is the only processor involved.
+        Nothing is passed to anyone beyond Google's own services listed above.
+      </p>
+
+      <h2>How long it is kept</h2>
+      <ul>
+        <li>
+          <strong>Entries are kept until you delete them.</strong> Nothing
+          expires and nothing is removed on a schedule. An entry written years
+          ago is still there unless you removed it.
+        </li>
+        <li>
+          The app only <em>loads</em> the last 30 days at a time, and reaches
+          further back when you open an older date. That is a loading window,
+          not a deletion policy — older entries are untouched.
+        </li>
+        <li>
+          <strong>Your account details are kept while the account exists.</strong>
+          Ask for it to be deleted and the entries go with it.
+        </li>
+        <li>
+          Guest entries are never stored at all. The one exception, the sign-in
+          hand-off described above, clears itself within ten minutes.
+        </li>
+      </ul>
+
+      <h2>How it is protected</h2>
+      <ul>
+        <li>
+          Everything travels over HTTPS. The app refuses to load any other way.
+        </li>
+        <li>
+          <strong>Rapid Log never sees your password.</strong> Signing in happens
+          on Google's own pages; the app only ever receives a token saying who
+          you are.
+        </li>
+        <li>
+          The database denies everything by default and allows a read or a write
+          only when the signed-in account owns that entry. The rules are checked
+          on Google's servers, not in the app, so they hold even if the app is
+          modified. They are published in full in the source code.
+        </li>
+        <li>
+          No copy of your log is kept anywhere else — no backups of our own, no
+          exports, no analytics store.
+        </li>
+      </ul>
+      <p>
+        No system is perfectly secure, and Rapid Log is a personal project rather
+        than an audited service. Treat it accordingly: it is a daily log, not a
+        vault for anything sensitive.
+      </p>
+
+      <h2>Your rights over this data</h2>
+      <ul>
+        <li>
+          <strong>See it</strong> — your whole log is visible in the app; nothing
+          is held back from you.
+        </li>
+        <li>
+          <strong>Correct it</strong> — any entry can be edited in place.
+        </li>
+        <li>
+          <strong>Delete it</strong> — any entry, immediately and permanently, or
+          the whole account by email.
+        </li>
+        <li>
+          <strong>Withdraw access</strong> — revoke Rapid Log from your Google
+          account at any time, at the link below.
+        </li>
+        <li>
+          <strong>Take it elsewhere</strong> — ask by email and you will be sent
+          your entries as a file.
+        </li>
+      </ul>
+
       <h2>Signing in with Google</h2>
       <p>
         Signing in asks Google only for your basic profile: name, email address
@@ -202,16 +286,6 @@
         <a href="https://myaccount.google.com/permissions" rel="noopener">
           your Google account permissions</a>.
       </p>
-
-      <h2>Your data, your call</h2>
-      <ul>
-        <li>Delete any entry from inside the app; deletion is immediate and permanent.</li>
-        <li>Withdraw Rapid Log's access to your Google account at the link above.</li>
-        <li>
-          Ask for your account and everything in it to be deleted, by email —
-          see below.
-        </li>
-      </ul>
 
       <h2>Children</h2>
       <p>
