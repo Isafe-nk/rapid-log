@@ -31,10 +31,25 @@ Always adhere to these styling tokens inside React components and Tailwind CSS r
   />
   ```
 * **Borders & Dividers:** Keep dividing lines extremely thin and soft (`border-neutral-50` or `border-neutral-100`) to maintain a clean layout with generous whitespace.
-* **Entry Layouts:** Bullet styles are specific:
-  * Tasks: Elegant square checkboxes (`w-5 h-5 border-2 border-neutral-300 rounded`).
-  * Events: Open circle bullet point (`○`).
-  * Notes: Left border offset indent bar (`border-l-4 border-neutral-200 pl-6 ml-4`).
+* **Entry Layouts:** Bullet geometry lives in one place — `GLYPH_SHAPE` in
+  `src/App.tsx` — and both the composer and the log list read it through
+  `glyphStyle()`. Do not restate these numbers as Tailwind classes; the two
+  will drift.
+  * Tasks: square checkbox, 20px with a 2px border and a 4px radius.
+  * Events: **filled dot, 8px, `rgb(23,23,23)`, no border.** Deliberately not an
+    outlined circle: at the checkbox's size an outline reads as a control
+    waiting to be ticked, and an event bullet is not interactive. Deliberately
+    small too — a 16px black circle would instead read as a *completed* task,
+    which is 20px and solid in the same column. The size gap is what says
+    "a different kind of thing" rather than "the same thing in another state".
+  * Notes: left border offset indent bar (`border-l-4 border-neutral-200 pl-6 ml-4`).
+  * Priority: lucide `Star`, 14px, filled — `text-amber-500` on a live row and
+    `text-neutral-300` on a completed one, which is deliberately faded.
+* **Draw marks, never type them.** Every glyph here was once a text character —
+  `○` for events, `*` for priority, `●` in the menu bar. A character's size,
+  stroke weight and baseline all come from whichever font resolves it, so none
+  of them matched the shapes beside them and all sat off the line. Use a drawn
+  shape or an icon component.
 
 ---
 

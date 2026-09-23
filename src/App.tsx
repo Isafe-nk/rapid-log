@@ -865,7 +865,6 @@ export default function App() {
     try {
       const handler = (window as any).webkit?.messageHandlers?.taskUpdate;
       if (handler) {
-        console.log(`[RapidLog Native] Posting ${todayTasks.length} tasks to native menu bar`);
         handler.postMessage(JSON.stringify(todayTasks));
       }
     } catch (e) {
@@ -1157,7 +1156,6 @@ export default function App() {
 
   useEffect(() => {
     (window as any).__toggleTodoFromNative = (id: string) => {
-      console.log(`[RapidLog Native] Toggling todo from native menu bar: ${id}`);
       if (toggleTodoRef.current) {
         toggleTodoRef.current(id);
       }

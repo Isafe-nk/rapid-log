@@ -357,6 +357,28 @@ changed and why — `fix: stop the log arriving in waves` rather than
 If a change touches an entry's shape, check that `firestore.rules` was updated
 in the same commit. That is the single easiest thing to forget here.
 
+### The npm audit warnings
+
+`npm audit` reports four advisories against runtime dependencies, one of them
+critical. They are all reached through Firebase and **none of them ships to
+users**:
+
+```
+firebase → @firebase/database → faye-websocket → websocket-driver   (Node WebSocket)
+firebase → @firebase/firestore → @grpc/grpc-js, protobufjs          (Node gRPC)
+```
+
+In a browser, Firestore talks over WebChannel and `fetch` rather than gRPC, so
+the bundler drops all three — `grep` the built bundle for `grpc`, `protobufjs`
+or `websocket-driver` and every count is zero. They would only matter to a
+Node process using the Firestore SDK server-side, which this project does not
+have.
+
+They are therefore left alone deliberately. Bumping the library that holds every
+user's data, to chase advisories that are provably absent from the artifact, is
+risk without benefit. If that ever changes — a server, or an SSR build — this is
+the paragraph to revisit.
+
 ### What CI checks
 
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request:
