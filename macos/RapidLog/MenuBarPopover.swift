@@ -157,83 +157,102 @@ struct TaskRowView: View {
     @ObservedObject var viewModel: MenuBarViewModel
     @State private var isHovered = false
 
+    /// Only a task can be ticked. The log window gives a checkbox to a task and
+    /// nothing else — an event gets a plain dot and a note gets no mark at all —
+    /// so a popover that let any row be completed was offering something the app
+    /// it mirrors does not have, and writing `completed` onto entries that have
+    /// no way to show it or undo it in the window.
+    private var isCompletable: Bool { task.type == "task" }
+
     /// Committed by a tap, as opposed to merely previewed by a hover.
     private var isDone: Bool { viewModel.displayCompleted(task) }
-    private var showsCheck: Bool { isDone || isHovered }
+    private var showsCheck: Bool { isCompletable && (isDone || isHovered) }
 
     var body: some View {
-        Button {
-            viewModel.toggleLocalTask(task.id)
-        } label: {
-            HStack(alignment: .top, spacing: 8) {
-                ZStack {
-                    if showsCheck {
-                        Text("✓")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.green)
-                            .transition(.scale(scale: 0.3).combined(with: .opacity))
-                    } else {
-                        BulletMark(type: task.type)
-                            .foregroundStyle(task.priority ? .orange : .secondary)
-                            .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    }
+        if isCompletable {
+            Button {
+                viewModel.toggleLocalTask(task.id)
+            } label: {
+                row
+            }
+            .buttonStyle(RowButtonStyle())
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isHovered = hovering
                 }
-                .frame(width: 14)
-                // Low damping gives the check a small overshoot as it lands.
-                .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsCheck)
+            }
+        } else {
+            // No button, no hover, no press feedback: an event or a note is a
+            // line in the log, not a control, and the popover should not invite
+            // a click that the window has no equivalent for.
+            row
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        if task.priority {
-                            Text("★")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.orange)
-                                .opacity(isDone ? 0.45 : 1)
-                        }
-                        Text(task.text)
-                            .font(.system(size: 12, weight: .regular, design: .monospaced))
-                            .foregroundStyle(isDone ? .secondary : .primary)
-                            .strikethrough(showsCheck, color: .secondary)
-                            .lineLimit(2)
-                            .animation(.easeOut(duration: 0.22), value: showsCheck)
-                            .animation(.easeOut(duration: 0.22), value: isDone)
+    private var row: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ZStack {
+                if showsCheck {
+                    Text("✓")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.green)
+                        .transition(.scale(scale: 0.3).combined(with: .opacity))
+                } else {
+                    BulletMark(type: task.type)
+                        .foregroundStyle(task.priority ? .orange : .secondary)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }
+            .frame(width: 14)
+            // Low damping gives the check a small overshoot as it lands.
+            .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsCheck)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    if task.priority {
+                        Text("★")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.orange)
+                            .opacity(isDone ? 0.45 : 1)
                     }
+                    Text(task.text)
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .foregroundStyle(isDone ? .secondary : .primary)
+                        .strikethrough(showsCheck, color: .secondary)
+                        .lineLimit(2)
+                        .animation(.easeOut(duration: 0.22), value: showsCheck)
+                        .animation(.easeOut(duration: 0.22), value: isDone)
+                }
 
-                    if let time = task.time {
-                        HStack(spacing: 0) {
-                            Text(time)
+                if let time = task.time {
+                    HStack(spacing: 0) {
+                        Text(time)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        if let endTime = task.endTime {
+                            Text(" – \(endTime)")
                                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                            if let endTime = task.endTime {
-                                Text(" – \(endTime)")
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            }
                         }
                     }
                 }
+            }
 
-                Spacer()
-            }
-            .padding(.vertical, 3)
-            .padding(.horizontal, 6)
-            .background(rowFill)
-            .cornerRadius(6)
-            // Without this the Spacer and clear background are not hit-tested,
-            // so only the bullet and title responded to hover and clicks while
-            // the highlight spanned the whole row.
-            .contentShape(Rectangle())
+            Spacer()
         }
-        .buttonStyle(RowButtonStyle())
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.16)) {
-                isHovered = hovering
-            }
-        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(rowFill)
+        .cornerRadius(6)
+        // Without this the Spacer and clear background are not hit-tested,
+        // so only the bullet and title responded to hover and clicks while
+        // the highlight spanned the whole row.
+        .contentShape(Rectangle())
     }
 
     /// A brief green wash confirms the completion before the row leaves.
     private var rowFill: Color {
+        guard isCompletable else { return .clear }
         if isDone { return Color.green.opacity(0.11) }
         if isHovered { return Color.primary.opacity(0.06) }
         return .clear
