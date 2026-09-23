@@ -60,7 +60,13 @@ const GLYPH_SHAPE: Record<EntryType, {
   backgroundColor: string; marginLeft: number;
 }> = {
   task: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
-  event: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
+  // Filled and small, deliberately. An outlined circle the size of the
+  // checkbox beside it reads as a control waiting to be ticked; filling it
+  // removes that invitation. Half the checkbox's size, because a 16px black
+  // circle would instead read as a *completed* task — that row is 20px and
+  // solid neutral-900 in the same column. The gap in size is what says "a
+  // different kind of thing" rather than "the same thing in another state".
+  event: { width: 8, height: 8, borderRadius: 4, borderWidth: 0, backgroundColor: 'rgba(23,23,23,1)', marginLeft: 0 },
   note: { width: 2, height: 22, borderRadius: 1, borderWidth: 0, backgroundColor: 'rgba(229,229,229,1)', marginLeft: 8 }
 };
 
@@ -74,7 +80,14 @@ const GLYPH_SHAPE: Record<EntryType, {
 // and `box-border`: a caller that forgot either would get an invisible border
 // or a box 4px too wide, and a silent one-place-only break is exactly what
 // this function exists to prevent.
-const glyphStyle = (type: EntryType): React.CSSProperties => {
+// `fill` is opt-in rather than always applied, because a task checkbox's
+// background is state and not shape: the list paints it neutral-900 through a
+// class once the entry is complete, and an inline backgroundColor from here
+// would beat that class and leave every completed box empty.
+const glyphStyle = (
+  type: EntryType,
+  opts?: { fill?: boolean },
+): React.CSSProperties => {
   const g = GLYPH_SHAPE[type];
   return {
     width: g.width,
@@ -83,8 +96,32 @@ const glyphStyle = (type: EntryType): React.CSSProperties => {
     borderWidth: g.borderWidth,
     borderStyle: 'solid',
     boxSizing: 'border-box',
+    ...(opts?.fill ? { backgroundColor: g.backgroundColor } : {}),
   };
 };
+
+// The same star the composer toggle and the context menu already draw, so what
+// you press is what appears on the line. It replaces a literal "*", which most
+// typefaces hang near the top of the line box — beside a 20px checkbox that
+// read as a speck floating above the row rather than a marker on it.
+//
+// `muted` is for a completed row, which is deliberately faded: an amber star
+// there would be the loudest thing on a line that is meant to be quiet.
+const PriorityStar: React.FC<{ muted?: boolean }> = ({ muted }) => (
+  <Star
+    size={14}
+    fill="currentColor"
+    className={muted ? 'text-neutral-300' : 'text-amber-500'}
+  />
+);
+
+// Always occupies its 16px whether or not there is a star in it, so a flagged
+// line and an unflagged one start their text at the same place.
+const PrioritySlot: React.FC<{ on: boolean; muted?: boolean }> = ({ on, muted }) => (
+  <span className="w-4 flex justify-center flex-shrink-0">
+    {on && <PriorityStar muted={muted} />}
+  </span>
+);
 
 // A little overshoot, so starring a line reads as a press rather than a repaint.
 const POP = [0.34, 1.56, 0.64, 1] as const;
@@ -1848,8 +1885,7 @@ export default function App() {
                       >
                         {entry.type !== 'note' && (
                           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-                            {entry.priority && <span className="text-amber-500 w-4 font-bold text-lg leading-none">*</span>}
-                            {!entry.priority && <span className="w-4" />}
+                            <PrioritySlot on={entry.priority} />
                             
                             {entry.type === 'task' ? (
                               <button
@@ -1879,24 +1915,41 @@ export default function App() {
                                 )}
                               </button>
                             ) : (
-                              // A drawn circle rather than a "○" glyph. The
+                              // A drawn dot rather than a "○" glyph. The
                               // character's diameter, stroke weight and baseline
                               // all came from whichever font resolved, so it
-                              // seldom matched the task checkbox beside it and
-                              // sat off the line. This is the same GLYPH_SHAPE
-                              // entry the composer animates to, wearing the
-                              // checkbox's own border, so a task and an event
-                              // read as one family.
-                              <span className="w-6 flex justify-center mt-0.5">
+                              // seldom matched the checkbox beside it and sat
+                              // off the line. This is the same GLYPH_SHAPE entry
+                              // the composer animates to.
+                              //
+                              // The slot is the checkbox's own height so the
+                              // dot's centre lands where a checkbox's centre
+                              // does — the marker column stays straight even
+                              // though the two markers are different sizes.
+                              <span
+                                className="w-6 flex items-center justify-center mt-0.5"
+                                style={{ height: GLYPH_SHAPE.task.height }}
+                              >
                                 <span
-                                  style={glyphStyle('event')}
-                                  className="block border-neutral-300"
+                                  style={glyphStyle('event', { fill: true })}
+                                  className="block"
                                 />
                               </span>
                             )}
                           </div>
                         )}
-                        
+
+                        {/* A note carries no bullet — its rail is its mark — so
+                            it gets the star on its own, and only when there is
+                            one to show. Without this the context menu offers
+                            "Mark Priority" on a note, saves it, and the row
+                            never says so. */}
+                        {entry.type === 'note' && entry.priority && (
+                          <div className="flex items-center flex-shrink-0 mt-1 mr-2">
+                            <PriorityStar />
+                          </div>
+                        )}
+
                         <div className={`flex-1 min-w-0 flex flex-col items-start text-lg leading-relaxed pt-0.5 ${entry.type === 'note' ? 'italic text-neutral-600' : ''}`}>
                           <div className="w-full min-w-0">
                           {editingId === entry.id ? (
@@ -2017,8 +2070,7 @@ export default function App() {
                       className="flex items-start gap-4 py-2 px-3 -mx-3 rounded-lg group hover:bg-neutral-50/30"
                     >
                       <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-                        {entry.priority && <span className="w-4" />}
-                        {!entry.priority && <span className="w-4" />}
+                        <PrioritySlot on={entry.priority} muted />
                         <button
                           onClick={() => toggleTodo(entry.id)}
                           style={glyphStyle('task')}
