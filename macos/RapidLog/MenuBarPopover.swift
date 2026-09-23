@@ -201,13 +201,16 @@ struct TaskRowView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             ZStack {
                 if showsCheck {
-                    Text("✓")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.green)
                         .transition(.scale(scale: 0.3).combined(with: .opacity))
                 } else {
+                    // Untinted. The log never colours a mark for priority —
+                    // the star carries that, and tinting the bullet too said
+                    // it twice in a place the log says it once.
                     BulletMark(type: task.type)
-                        .foregroundStyle(task.priority ? .orange : .secondary)
+                        .foregroundStyle(.secondary)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
@@ -225,9 +228,9 @@ struct TaskRowView: View {
                 // priority star appeared, and the mark beside it moved too.
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if task.priority {
-                        Text("★")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.orange)
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(RowFont.priority)
                             .opacity(isDone ? 0.45 : 1)
                     }
                     Text(task.text)
@@ -297,13 +300,13 @@ struct CompletedTaskRowView: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 ZStack {
                     if showsRestore {
-                        Text("↺")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.orange)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
                     } else if task.type == "task" {
-                        Text("✓")
-                            .font(.system(size: 10, design: .monospaced))
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9))
                             .foregroundStyle(.green)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
                     } else {
@@ -377,6 +380,10 @@ enum RowFont {
     /// How far above the baseline a mark's centre belongs.
     static let opticalCentre: CGFloat =
         NSFont.monospacedSystemFont(ofSize: size, weight: .regular).xHeight / 2
+
+    /// amber-500, the log's priority colour. `.orange` is a system hue tuned
+    /// for macOS, not this app, and the two are visibly different side by side.
+    static let priority = Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
 }
 
 /// The entry marks, drawn rather than typed.
@@ -395,11 +402,17 @@ struct BulletMark: View {
     var body: some View {
         switch type {
         case "event":
+            // 40% of the task mark, as 8px is of the log's 20px checkbox. It
+            // was 5pt, which is 56% — enough that the dot read as a small
+            // checkbox rather than a different kind of thing.
             Circle()
-                .frame(width: 5, height: 5)
+                .frame(width: 4, height: 4)
         case "note":
+            // Vertical, because a note's mark is the rail running down the
+            // side of its text. This was drawn 7x1.5 — lying on its side. The
+            // log has never drawn a horizontal mark for anything.
             RoundedRectangle(cornerRadius: 0.5)
-                .frame(width: 7, height: 1.5)
+                .frame(width: 1, height: 10)
         default:
             RoundedRectangle(cornerRadius: 2)
                 .stroke(lineWidth: 1.5)

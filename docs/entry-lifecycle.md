@@ -152,7 +152,78 @@ options, and it is the one question worth settling before any of this is built.
 
 ---
 
-## 6. Where this is enforced
+## 6. The menu bar popover is a mirror
+
+The popover is a **view of the same log**, not a second app that happens to
+show the same data. It may show *less*. It may never show something *different*.
+
+Everything in this section has been got wrong at least once, and each time by
+the same route: the popover is written in a different language, in a different
+file, by someone reasoning from scratch about what a small list should look
+like. It is not a small list. It is this log, small.
+
+### What it must match
+
+| | the log | the popover must |
+| --- | --- | --- |
+| which entries | the day's entries, by section | same, today only |
+| order | timed in clock order, then untimed by creation | same — `byTimeThenCreated`, mirrored in Swift |
+| what each type looks like | `GLYPH_SHAPE` | the same marks, in proportion (below) |
+| who can be ticked | tasks, §2 | tasks, §2 |
+| what priority looks like | a drawn star, amber-500 | a drawn star, amber-500 |
+| completion | a property of tasks | never offered to anything else |
+
+### What it may leave out
+
+Editing, deleting, dragging, the context menu, other dates, the archive's full
+history. The popover is a glance and a tick. Omission is fine.
+
+### What it may never add
+
+A capability the log does not have — the popover let any row be ticked, which
+put events in the archive that the log had no way to get out again.
+
+A *concept* the log does not have is the subtler one. The "to do" badge is the
+example: the log has no such counter, so the popover invented what it counts,
+and counted events and notes among the things left to do. They can never be
+done, so the number could never reach zero.
+
+### Marks, in proportion
+
+The log draws its task checkbox at 20px and every other mark in proportion to
+it. The popover's column is 9pt, so each mark is that same proportion of 9:
+
+| | log | popover |
+| --- | --- | --- |
+| task | 20px square, 2px border | 9pt square, 1.5pt stroke |
+| event | 8px filled dot (40%) | 4pt filled dot |
+| note | 2x22px vertical rail | 1x10pt vertical rail |
+
+Two floors are deliberate. A stroke or a rail thinner than about a point stops
+being visible at this size, so both round up rather than scaling exactly. Note
+that down when changing them; it is not drift.
+
+The marks are **drawn, never typed** — the same rule the design skill states,
+and for the same reason. A typed `✓`, `★` or `○` takes its size, weight and
+baseline from whichever font resolves it, so it never matches the shapes beside
+it. Use `Shape` or an SF Symbol.
+
+### Accepted differences
+
+Two, both deliberate:
+
+- **The hover preview.** A popover row has no small hover targets, so the row
+  itself is the control and the mark previews the outcome — a green check
+  appears before you commit, and a restore arrow on a completed row. The log
+  has per-element hover targets and needs none of this.
+- **The badges.** "To do" counts open *tasks*, because that is the only thing
+  that can be done. "Done" counts everything sitting in the DONE list, which
+  may include a legacy event, because the number has to match the rows under
+  it.
+
+---
+
+## 7. Where this is enforced
 
 Not in one place, which is the risk:
 
