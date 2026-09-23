@@ -320,6 +320,30 @@ const readGuestHandoff = (): Todo[] => {
   }
 };
 
+/// Drops an expired stash without anybody having to sign in first.
+///
+/// The TTL above is only consulted by readGuestHandoff, and that runs from the
+/// import effect, which returns early unless somebody is signed in. So a guest
+/// who stashed their entries and then abandoned the trip to Google — closed the
+/// tab, changed their mind — left the full text of those entries sitting in
+/// localStorage until the next *successful* sign-in in that browser, which may
+/// never come. The privacy policy says the stash expires by itself; this is
+/// what makes that true.
+const sweepExpiredGuestHandoff = () => {
+  try {
+    const raw = localStorage.getItem(GUEST_HANDOFF_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Number.isFinite(Number(parsed?.at))
+      || Date.now() - Number(parsed.at) > GUEST_HANDOFF_TTL) {
+      clearGuestHandoff();
+    }
+  } catch {
+    // Unreadable is as good a reason to drop it as expired.
+    clearGuestHandoff();
+  }
+};
+
 // Mirrors isValidTodo in firestore.rules. Handoff entries come back off disk as
 // untrusted JSON, and the rules reject a batch whole rather than per document.
 const isWritableEntry = (e: any): boolean =>
@@ -631,7 +655,7 @@ export default function App() {
       // onAuthStateChanged and the log still has to load, and the splash does
       // not appear until it does. Dropping the pending state at this point
       // would hand the user back an idle-looking button for that whole gap.
-      // This screen unmounts on success, which clears it.
+      // The auth listener clears it when the account actually arrives.
     } catch (e: any) {
       setSigningIn(false);
       const message = e?.code || e?.message || 'Sign in failed';
@@ -748,11 +772,29 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', warn);
   }, [localOnly, todos.length]);
 
+  // Runs once on load, before anything decides whether somebody is signed in,
+  // so an abandoned stash is gone whether or not they ever come back to it.
+  useEffect(() => {
+    sweepExpiredGuestHandoff();
+  }, []);
+
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setAuthReady(true);
+      // The account arriving is what ends the sign-in, so it is what clears the
+      // pending flag. It cannot be cleared where signInWithGoogle resolves:
+      // resolving only means Google and Firebase agreed, and the button has to
+      // keep spinning until the log is actually up.
+      //
+      // Nor does it clear itself by unmounting. `signingIn` lives in App, which
+      // never unmounts — the sign-in screen is conditional JSX inside it, and
+      // rendering that away leaves the parent's state exactly as it was. Left
+      // to that assumption the flag stayed true for the rest of the session,
+      // and the next sign-out handed back a button that was disabled and
+      // spinning for ever, recoverable only by reloading the page.
+      if (u) setSigningIn(false);
     });
 
     if (isNative()) {

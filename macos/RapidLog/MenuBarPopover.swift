@@ -173,8 +173,7 @@ struct TaskRowView: View {
                             .foregroundStyle(.green)
                             .transition(.scale(scale: 0.3).combined(with: .opacity))
                     } else {
-                        Text(bulletFor(task))
-                            .font(.system(size: 11, design: .monospaced))
+                        BulletMark(type: task.type)
                             .foregroundStyle(task.priority ? .orange : .secondary)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
@@ -240,13 +239,15 @@ struct TaskRowView: View {
         return .clear
     }
 
-    private func bulletFor(_ task: TaskItem) -> String {
-        switch task.type {
-        case "event": return "○"
-        case "note": return "—"
-        default: return "●"
-        }
-    }
+    // bulletFor() used to return "○", "—" and "●" as text. Those are the same
+    // typed glyphs the web list and the menu bar item both had to give up: a
+    // character's diameter, stroke weight and baseline all come from whichever
+    // font resolves it, so it never matched the marks beside it. The web list
+    // now draws an 8px filled dot for an event, and this drew an outlined
+    // circle — the two surfaces disagreed about what an event looks like.
+    //
+    // Drawn here too, from the same proportions the web app's GLYPH_SHAPE
+    // declares, scaled to this row's 14pt column.
 }
 
 // MARK: - Completed Task Row with Hover Restore
@@ -317,5 +318,34 @@ struct RowButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// The entry marks, drawn rather than typed.
+///
+/// Proportions follow the web app's GLYPH_SHAPE so the popover and the log
+/// agree on what each kind of entry looks like:
+///
+///   task   a square outline, the checkbox shape at this size
+///   event  a small filled dot — filled so it does not read as a control
+///          waiting to be ticked, and small so it does not read as a task
+///          already completed
+///   note   a short bar, the rail the log draws beside a note
+struct BulletMark: View {
+    let type: String
+
+    var body: some View {
+        switch type {
+        case "event":
+            Circle()
+                .frame(width: 5, height: 5)
+        case "note":
+            RoundedRectangle(cornerRadius: 0.5)
+                .frame(width: 7, height: 1.5)
+        default:
+            RoundedRectangle(cornerRadius: 2)
+                .stroke(lineWidth: 1.5)
+                .frame(width: 9, height: 9)
+        }
     }
 }
