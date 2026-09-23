@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MenuBarPopover: View {
     @ObservedObject var viewModel: MenuBarViewModel
@@ -190,7 +191,14 @@ struct TaskRowView: View {
     }
 
     private var row: some View {
-        HStack(alignment: .top, spacing: 8) {
+        // .firstTextBaseline, not .top. Topping-aligned marks look level only
+        // when they are all the same height, and these are not: the task square
+        // is 9pt, the event dot 5pt, the note bar 1.5pt and the check about 13.
+        // Pinning each one's top to the top of the text put every mark's centre
+        // a different distance above the words — worst for the note bar, which
+        // floated near the cap line, and least bad for the square, which is why
+        // only the square ever looked right.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             ZStack {
                 if showsCheck {
                     Text("✓")
@@ -204,11 +212,18 @@ struct TaskRowView: View {
                 }
             }
             .frame(width: 14)
+            // Every mark now hangs from the same line: its own centre sits at
+            // the optical middle of the lowercase letters, whatever its height.
+            .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + RowFont.opticalCentre }
             // Low damping gives the check a small overshoot as it lands.
             .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsCheck)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
+                // Also baseline-aligned, and for a second reason: it is what
+                // the outer HStack reads to find the row's baseline. Left on
+                // .center this group reported a baseline that moved whenever a
+                // priority star appeared, and the mark beside it moved too.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if task.priority {
                         Text("★")
                             .font(.system(size: 9))
@@ -216,7 +231,7 @@ struct TaskRowView: View {
                             .opacity(isDone ? 0.45 : 1)
                     }
                     Text(task.text)
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .font(.system(size: RowFont.size, weight: .regular, design: .monospaced))
                         .foregroundStyle(isDone ? .secondary : .primary)
                         .strikethrough(showsCheck, color: .secondary)
                         .lineLimit(2)
@@ -338,6 +353,21 @@ struct RowButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
+}
+
+/// The row title's own metrics, so a mark can be placed against the letters
+/// instead of against the line box.
+///
+/// The two are not the same place. A line box carries descender room that most
+/// of a lowercase word never uses, so its middle sits below the middle of the
+/// letters — centring a bullet there leaves it looking low. Half the x-height
+/// above the baseline is where the eye reads the middle of a word to be.
+enum RowFont {
+    static let size: CGFloat = 12
+
+    /// How far above the baseline a mark's centre belongs.
+    static let opticalCentre: CGFloat =
+        NSFont.monospacedSystemFont(ofSize: size, weight: .regular).xHeight / 2
 }
 
 /// The entry marks, drawn rather than typed.
