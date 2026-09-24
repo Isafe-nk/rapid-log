@@ -241,6 +241,33 @@ The version is passed to `xcodebuild` as `MARKETING_VERSION` rather than read
 from `project.yml`, so that file's literal never takes part in a release. It
 had drifted a full minor version behind `package.json` before this existed.
 
+### Working on the Mac app
+
+```
+npm run mac          build, install into /Applications, relaunch
+npm run mac:watch    do that again on every save
+```
+
+Watch mode rebuilds in about five seconds. It polls `macos/RapidLog` and
+`macos/project.yml` once a second and waits for the tree to stop changing
+before building, so an editor writing several files does not start a build
+against a half-saved one. A build that fails prints the compiler's lines and
+keeps watching — fixing the typo rebuilds.
+
+This is not the release path; [`package-macos.sh`](#building-the-download) is,
+and it stays the one place the shipping recipe lives. The dev script builds for
+this Mac's architecture only rather than universal, skips the disk image and
+skips the verification, all to keep the loop short. Its own DerivedData, so
+alternating between the two does not make each rebuild what the other
+invalidated. Builds are numbered `dev1`, `dev2`, … and the number always goes
+up, because every build of this app otherwise calls itself the same version and
+"is this the one I just built?" has no answer.
+
+**It cannot help with anything under `src/`.** The app bundles no web assets —
+it loads `https://to-do-rapidlog.web.app` at launch — so a change to the web
+app is not in it until that is deployed, however many times you rebuild. Use
+`npm run dev` in a browser for web work. This script only ever changes Swift.
+
 ### Installing a build to test it
 
 ```

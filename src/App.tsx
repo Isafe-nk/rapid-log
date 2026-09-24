@@ -51,23 +51,35 @@ const MINUTE_OPTIONS = ['00', '15', '30', '45'];
 const ENTRY_TYPES: EntryType[] = ['task', 'event', 'note'];
 
 // Square, circle and bar are one box at three sizes, so the composer's bullet
-// travels between them rather than being swapped out. Two details make it work:
-// the radius stays in px (8px on a 16px box is a circle) because px-to-% does
-// not interpolate, and the fill is alpha-zero grey rather than `transparent` so
-// it fades through grey instead of through black.
+// travels between them rather than being swapped out. Three details make it
+// work, and each is a repair of something that looked wrong in motion:
+//
+//   - The radius stays in px because px-to-% does not interpolate. It is
+//     constant at 4 across task and event, so the ratio rises from 20% of a
+//     20px box to 50% of an 8px one on its own: the square rounds off as it
+//     shrinks rather than becoming a circle on the last frame.
+//   - Every fill is the same ink at a different alpha, never a different
+//     colour. An alpha-zero *grey* start crossfading to near-black passed
+//     through solid mid-grey halfway, which inside a still-visible outline
+//     read as a checkbox being filled in — the one meaning this animation
+//     must not have.
+//   - The border colour animates with the fill instead of sitting in a class,
+//     so the outline darkens as it thins and lands as the dot. Leaving it at
+//     neutral-200 left a pale ring hanging around a mark that had already
+//     turned black.
 const GLYPH_SHAPE: Record<EntryType, {
   width: number; height: number; borderRadius: number; borderWidth: number;
-  backgroundColor: string; marginLeft: number;
+  backgroundColor: string; borderColor: string; marginLeft: number;
 }> = {
-  task: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, backgroundColor: 'rgba(229,229,229,0)', marginLeft: 0 },
+  task: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, backgroundColor: 'rgba(23,23,23,0)', borderColor: 'rgba(229,229,229,1)', marginLeft: 0 },
   // Filled and small, deliberately. An outlined circle the size of the
   // checkbox beside it reads as a control waiting to be ticked; filling it
   // removes that invitation. Half the checkbox's size, because a 16px black
   // circle would instead read as a *completed* task — that row is 20px and
   // solid neutral-900 in the same column. The gap in size is what says "a
   // different kind of thing" rather than "the same thing in another state".
-  event: { width: 8, height: 8, borderRadius: 4, borderWidth: 0, backgroundColor: 'rgba(23,23,23,1)', marginLeft: 0 },
-  note: { width: 2, height: 22, borderRadius: 1, borderWidth: 0, backgroundColor: 'rgba(229,229,229,1)', marginLeft: 8 }
+  event: { width: 8, height: 8, borderRadius: 4, borderWidth: 0, backgroundColor: 'rgba(23,23,23,1)', borderColor: 'rgba(23,23,23,1)', marginLeft: 0 },
+  note: { width: 2, height: 22, borderRadius: 1, borderWidth: 0, backgroundColor: 'rgba(229,229,229,1)', borderColor: 'rgba(229,229,229,1)', marginLeft: 8 }
 };
 
 // The log list draws the same bullets the composer animates between, so it
@@ -83,7 +95,10 @@ const GLYPH_SHAPE: Record<EntryType, {
 // `fill` is opt-in rather than always applied, because a task checkbox's
 // background is state and not shape: the list paints it neutral-900 through a
 // class once the entry is complete, and an inline backgroundColor from here
-// would beat that class and leave every completed box empty.
+// would beat that class and leave every completed box empty. borderColor is
+// left out altogether for the same reason — it exists in GLYPH_SHAPE only so
+// the composer can animate it, and the list needs its own hover and completed
+// colours to win.
 const glyphStyle = (
   type: EntryType,
   opts?: { fill?: boolean },
@@ -238,6 +253,14 @@ const GLIDE = { type: 'spring', stiffness: 420, damping: 36, mass: 0.9 } as cons
 
 // Slow-out cubic. Motion decelerates into place rather than stopping dead.
 const EASE = [0.22, 1, 0.36, 1] as const;
+
+// For one shape becoming another, where EASE is the wrong instrument. Solve
+// EASE and it puts 87% of the motion into the first 136ms of a 400ms
+// transition: ideal for something arriving, which should land and settle, and
+// wrong for a morph, where that front-load reads as a snap and the remaining
+// 264ms as a drift. This spreads the motion evenly across the duration, so the
+// shape is seen changing rather than seen having changed.
+const MORPH = [0.4, 0, 0.2, 1] as const;
 
 // Each block arrives slightly after the one above it, so the page assembles
 // top-down instead of appearing all at once.
@@ -1601,10 +1624,10 @@ export default function App() {
             <div className="flex items-center gap-3">
               <span className="w-6 flex justify-center flex-shrink-0">
                 <motion.span
-                  className="block box-border border-solid border-neutral-200"
+                  className="block box-border border-solid"
                   initial={false}
                   animate={GLYPH_SHAPE[selectedType]}
-                  transition={{ duration: 0.4, ease: EASE }}
+                  transition={{ duration: 0.4, ease: MORPH }}
                 />
               </span>
               <input
@@ -2109,17 +2132,42 @@ export default function App() {
                       }}
                       className="flex items-start gap-4 py-2 px-3 -mx-3 rounded-lg group hover:bg-neutral-50/30"
                     >
+                      {/* The archive used to draw a ticked checkbox beside
+                          every row whatever it was, so a completed event or
+                          note arrived here wearing a task's mark — and the
+                          checkbox was the only way back, which meant the one
+                          control the live list withholds from those types was
+                          the one the archive forced on them. Each entry keeps
+                          its own mark here; only a task keeps the checkbox. */}
                       <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                         <PrioritySlot on={entry.priority} muted />
-                        <button
-                          onClick={() => toggleTodo(entry.id)}
-                          style={glyphStyle('task')}
-                          className="border-neutral-900 bg-neutral-900 flex items-center justify-center transition-colors cursor-pointer mt-0.5"
-                        >
-                          <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="4">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        </button>
+                        {entry.type === 'task' ? (
+                          <button
+                            onClick={() => toggleTodo(entry.id)}
+                            style={glyphStyle('task')}
+                            className="border-neutral-900 bg-neutral-900 flex items-center justify-center transition-colors cursor-pointer mt-0.5"
+                            title="Mark incomplete"
+                          >
+                            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="4">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          </button>
+                        ) : (
+                          // Not a button: the live list gives neither of these
+                          // types a control, and inventing one here is what got
+                          // them into the archive in the first place. The slot
+                          // is the checkbox's height either way, so the marker
+                          // column stays straight down the page.
+                          <span
+                            className="w-6 flex items-center justify-center mt-0.5"
+                            style={{ height: GLYPH_SHAPE.task.height }}
+                          >
+                            <span
+                              style={glyphStyle(entry.type, { fill: true })}
+                              className={`block ${entry.type === 'event' ? 'opacity-30' : ''}`}
+                            />
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className="text-lg leading-relaxed pt-0.5 text-neutral-300 line-through decoration-neutral-200 truncate">
@@ -2135,9 +2183,23 @@ export default function App() {
                           {entry.timeOfDay}
                         </span>
                       </div>
+                      {/* An event or a note has no checkbox to un-tick, so
+                          without this the only way out of the archive would be
+                          the context menu — a way back that has to be guessed
+                          at. Tasks do not need it; theirs is the checkbox. */}
+                      {entry.type !== 'task' && (
+                        <button
+                          onClick={() => toggleTodo(entry.id)}
+                          className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-neutral-900 transition-all p-1 mt-0.5"
+                          title="Move back to the log"
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      )}
                       <button
                         onClick={() => deleteTodo(entry.id)}
                         className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-400 transition-all p-1 mt-0.5"
+                        title="Delete entry"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -2233,16 +2295,24 @@ export default function App() {
               <span>Edit Entry</span>
             </button>
 
-            <button
-              onClick={() => {
-                toggleTodo(contextMenu.todo.id);
-                setContextMenu(null);
-              }}
-              className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
-            >
-              <Check size={13} className={contextMenu.todo.completed ? "text-green-600" : "text-neutral-400"} />
-              <span>{contextMenu.todo.completed ? 'Mark Incomplete' : 'Mark Complete'}</span>
-            </button>
+            {/* Completion belongs to tasks — see docs/entry-lifecycle.md §2.
+                This item was the last place still offering it to everything,
+                and so the only way an event could reach the archive at all.
+                It stays visible on an already-completed entry of any type,
+                because entries completed before that was settled need a way
+                back out. */}
+            {(contextMenu.todo.type === 'task' || contextMenu.todo.completed) && (
+              <button
+                onClick={() => {
+                  toggleTodo(contextMenu.todo.id);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
+              >
+                <Check size={13} className={contextMenu.todo.completed ? "text-green-600" : "text-neutral-400"} />
+                <span>{contextMenu.todo.completed ? 'Mark Incomplete' : 'Mark Complete'}</span>
+              </button>
+            )}
 
             <button
               onClick={() => {

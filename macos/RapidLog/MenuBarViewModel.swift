@@ -103,7 +103,14 @@ class MenuBarViewModel: ObservableObject {
 
     /// Counts follow the tapped state immediately, so the header reacts on
     /// contact while the row itself is still settling.
-    var activeCount: Int { tasks.filter { !displayCompleted($0) }.count }
+    ///
+    /// "To do" counts open *tasks*. It used to count every open entry, so a day
+    /// of notes and events reported work outstanding that nothing in the app
+    /// could ever discharge — the number had no path to zero. Only a task can
+    /// be done; see docs/entry-lifecycle.md §2.
+    var activeCount: Int {
+        tasks.filter { $0.type == "task" && !displayCompleted($0) }.count
+    }
     var completedCount: Int { tasks.filter { displayCompleted($0) }.count }
     var totalCount: Int { tasks.count }
 

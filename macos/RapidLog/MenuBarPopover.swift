@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MenuBarPopover: View {
     @ObservedObject var viewModel: MenuBarViewModel
@@ -157,83 +158,119 @@ struct TaskRowView: View {
     @ObservedObject var viewModel: MenuBarViewModel
     @State private var isHovered = false
 
+    /// Only a task can be ticked. The log window gives a checkbox to a task and
+    /// nothing else — an event gets a plain dot and a note gets no mark at all —
+    /// so a popover that let any row be completed was offering something the app
+    /// it mirrors does not have, and writing `completed` onto entries that have
+    /// no way to show it or undo it in the window.
+    private var isCompletable: Bool { task.type == "task" }
+
     /// Committed by a tap, as opposed to merely previewed by a hover.
     private var isDone: Bool { viewModel.displayCompleted(task) }
-    private var showsCheck: Bool { isDone || isHovered }
+    private var showsCheck: Bool { isCompletable && (isDone || isHovered) }
 
     var body: some View {
-        Button {
-            viewModel.toggleLocalTask(task.id)
-        } label: {
-            HStack(alignment: .top, spacing: 8) {
-                ZStack {
-                    if showsCheck {
-                        Text("✓")
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.green)
-                            .transition(.scale(scale: 0.3).combined(with: .opacity))
-                    } else {
-                        BulletMark(type: task.type)
-                            .foregroundStyle(task.priority ? .orange : .secondary)
-                            .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    }
+        if isCompletable {
+            Button {
+                viewModel.toggleLocalTask(task.id)
+            } label: {
+                row
+            }
+            .buttonStyle(RowButtonStyle())
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isHovered = hovering
                 }
-                .frame(width: 14)
-                // Low damping gives the check a small overshoot as it lands.
-                .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsCheck)
+            }
+        } else {
+            // No button, no hover, no press feedback: an event or a note is a
+            // line in the log, not a control, and the popover should not invite
+            // a click that the window has no equivalent for.
+            row
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        if task.priority {
-                            Text("★")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.orange)
-                                .opacity(isDone ? 0.45 : 1)
-                        }
-                        Text(task.text)
-                            .font(.system(size: 12, weight: .regular, design: .monospaced))
-                            .foregroundStyle(isDone ? .secondary : .primary)
-                            .strikethrough(showsCheck, color: .secondary)
-                            .lineLimit(2)
-                            .animation(.easeOut(duration: 0.22), value: showsCheck)
-                            .animation(.easeOut(duration: 0.22), value: isDone)
+    private var row: some View {
+        // .firstTextBaseline, not .top. Topping-aligned marks look level only
+        // when they are all the same height, and these are not: the task square
+        // is 9pt, the event dot 5pt, the note bar 1.5pt and the check about 13.
+        // Pinning each one's top to the top of the text put every mark's centre
+        // a different distance above the words — worst for the note bar, which
+        // floated near the cap line, and least bad for the square, which is why
+        // only the square ever looked right.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            ZStack {
+                if showsCheck {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.green)
+                        .transition(.scale(scale: 0.3).combined(with: .opacity))
+                } else {
+                    // Untinted. The log never colours a mark for priority —
+                    // the star carries that, and tinting the bullet too said
+                    // it twice in a place the log says it once.
+                    BulletMark(type: task.type)
+                        .foregroundStyle(.secondary)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }
+            .frame(width: 14)
+            // Every mark now hangs from the same line: its own centre sits at
+            // the optical middle of the lowercase letters, whatever its height.
+            .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + RowFont.opticalCentre }
+            // Low damping gives the check a small overshoot as it lands.
+            .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsCheck)
+
+            VStack(alignment: .leading, spacing: 2) {
+                // Also baseline-aligned, and for a second reason: it is what
+                // the outer HStack reads to find the row's baseline. Left on
+                // .center this group reported a baseline that moved whenever a
+                // priority star appeared, and the mark beside it moved too.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if task.priority {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(RowFont.priority)
+                            .opacity(isDone ? 0.45 : 1)
                     }
+                    Text(task.text)
+                        .font(.system(size: RowFont.size, weight: .regular, design: .monospaced))
+                        .foregroundStyle(isDone ? .secondary : .primary)
+                        .strikethrough(showsCheck, color: .secondary)
+                        .lineLimit(2)
+                        .animation(.easeOut(duration: 0.22), value: showsCheck)
+                        .animation(.easeOut(duration: 0.22), value: isDone)
+                }
 
-                    if let time = task.time {
-                        HStack(spacing: 0) {
-                            Text(time)
+                if let time = task.time {
+                    HStack(spacing: 0) {
+                        Text(time)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        if let endTime = task.endTime {
+                            Text(" – \(endTime)")
                                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                            if let endTime = task.endTime {
-                                Text(" – \(endTime)")
-                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                            }
                         }
                     }
                 }
+            }
 
-                Spacer()
-            }
-            .padding(.vertical, 3)
-            .padding(.horizontal, 6)
-            .background(rowFill)
-            .cornerRadius(6)
-            // Without this the Spacer and clear background are not hit-tested,
-            // so only the bullet and title responded to hover and clicks while
-            // the highlight spanned the whole row.
-            .contentShape(Rectangle())
+            Spacer()
         }
-        .buttonStyle(RowButtonStyle())
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.16)) {
-                isHovered = hovering
-            }
-        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(rowFill)
+        .cornerRadius(6)
+        // Without this the Spacer and clear background are not hit-tested,
+        // so only the bullet and title responded to hover and clicks while
+        // the highlight spanned the whole row.
+        .contentShape(Rectangle())
     }
 
     /// A brief green wash confirms the completion before the row leaves.
     private var rowFill: Color {
+        guard isCompletable else { return .clear }
         if isDone { return Color.green.opacity(0.11) }
         if isHovered { return Color.primary.opacity(0.06) }
         return .clear
@@ -260,21 +297,30 @@ struct CompletedTaskRowView: View {
         Button {
             viewModel.toggleLocalTask(task.id)
         } label: {
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 ZStack {
                     if showsRestore {
-                        Text("↺")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.orange)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
-                    } else {
-                        Text("✓")
-                            .font(.system(size: 10, design: .monospaced))
+                    } else if task.type == "task" {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9))
                             .foregroundStyle(.green)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
+                    } else {
+                        // A green tick on an event or a note claimed it had
+                        // been ticked, and nothing in this app can tick one.
+                        // It keeps its own mark here, faded because the row is
+                        // done; hovering still offers the way back.
+                        BulletMark(type: task.type)
+                            .foregroundStyle(.tertiary)
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
                 }
                 .frame(width: 14)
+                .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + RowFont.opticalCentre }
                 .animation(.spring(response: 0.26, dampingFraction: 0.55), value: showsRestore)
 
                 Text(task.text)
@@ -321,6 +367,25 @@ struct RowButtonStyle: ButtonStyle {
     }
 }
 
+/// The row title's own metrics, so a mark can be placed against the letters
+/// instead of against the line box.
+///
+/// The two are not the same place. A line box carries descender room that most
+/// of a lowercase word never uses, so its middle sits below the middle of the
+/// letters — centring a bullet there leaves it looking low. Half the x-height
+/// above the baseline is where the eye reads the middle of a word to be.
+enum RowFont {
+    static let size: CGFloat = 12
+
+    /// How far above the baseline a mark's centre belongs.
+    static let opticalCentre: CGFloat =
+        NSFont.monospacedSystemFont(ofSize: size, weight: .regular).xHeight / 2
+
+    /// amber-500, the log's priority colour. `.orange` is a system hue tuned
+    /// for macOS, not this app, and the two are visibly different side by side.
+    static let priority = Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
+}
+
 /// The entry marks, drawn rather than typed.
 ///
 /// Proportions follow the web app's GLYPH_SHAPE so the popover and the log
@@ -337,11 +402,17 @@ struct BulletMark: View {
     var body: some View {
         switch type {
         case "event":
+            // 40% of the task mark, as 8px is of the log's 20px checkbox. It
+            // was 5pt, which is 56% — enough that the dot read as a small
+            // checkbox rather than a different kind of thing.
             Circle()
-                .frame(width: 5, height: 5)
+                .frame(width: 4, height: 4)
         case "note":
+            // Vertical, because a note's mark is the rail running down the
+            // side of its text. This was drawn 7x1.5 — lying on its side. The
+            // log has never drawn a horizontal mark for anything.
             RoundedRectangle(cornerRadius: 0.5)
-                .frame(width: 7, height: 1.5)
+                .frame(width: 1, height: 10)
         default:
             RoundedRectangle(cornerRadius: 2)
                 .stroke(lineWidth: 1.5)

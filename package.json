@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "mac": "scripts/dev-macos.sh",
+    "mac:watch": "scripts/dev-macos.sh --watch"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",

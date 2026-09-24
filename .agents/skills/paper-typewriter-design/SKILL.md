@@ -45,6 +45,12 @@ Always adhere to these styling tokens inside React components and Tailwind CSS r
   * Notes: left border offset indent bar (`border-l-4 border-neutral-200 pl-6 ml-4`).
   * Priority: lucide `Star`, 14px, filled — `text-amber-500` on a live row and
     `text-neutral-300` on a completed one, which is deliberately faded.
+* **Ticking is for tasks.** (`docs/entry-lifecycle.md` §2 is the spec; this is
+  the visual half of it.) A task carries the only completion control in the
+  app; an event and a note have none, on any surface. Any list that mirrors the
+  log — the macOS menu bar popover included — must reserve the tap, the hover
+  check and the strikethrough for `type === 'task'`, or it offers a state the
+  log cannot show and the user cannot undo.
 * **Draw marks, never type them.** Every glyph here was once a text character —
   `○` for events, `*` for priority, `●` in the menu bar. A character's size,
   stroke weight and baseline all come from whichever font resolves it, so none
