@@ -254,6 +254,14 @@ const GLIDE = { type: 'spring', stiffness: 420, damping: 36, mass: 0.9 } as cons
 // Slow-out cubic. Motion decelerates into place rather than stopping dead.
 const EASE = [0.22, 1, 0.36, 1] as const;
 
+// For one shape becoming another, where EASE is the wrong instrument. Solve
+// EASE and it puts 87% of the motion into the first 136ms of a 400ms
+// transition: ideal for something arriving, which should land and settle, and
+// wrong for a morph, where that front-load reads as a snap and the remaining
+// 264ms as a drift. This spreads the motion evenly across the duration, so the
+// shape is seen changing rather than seen having changed.
+const MORPH = [0.4, 0, 0.2, 1] as const;
+
 // Each block arrives slightly after the one above it, so the page assembles
 // top-down instead of appearing all at once.
 //
@@ -1619,7 +1627,7 @@ export default function App() {
                   className="block box-border border-solid"
                   initial={false}
                   animate={GLYPH_SHAPE[selectedType]}
-                  transition={{ duration: 0.4, ease: EASE }}
+                  transition={{ duration: 0.4, ease: MORPH }}
                 />
               </span>
               <input
