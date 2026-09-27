@@ -107,7 +107,7 @@ class MenuBarViewModel: ObservableObject {
     /// "To do" counts open *tasks*. It used to count every open entry, so a day
     /// of notes and events reported work outstanding that nothing in the app
     /// could ever discharge — the number had no path to zero. Only a task can
-    /// be done; see docs/entry-lifecycle.md §2.
+    /// be done.
     var activeCount: Int {
         tasks.filter { $0.type == "task" && !displayCompleted($0) }.count
     }

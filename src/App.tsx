@@ -2295,7 +2295,7 @@ export default function App() {
               <span>Edit Entry</span>
             </button>
 
-            {/* Completion belongs to tasks — see docs/entry-lifecycle.md §2.
+            {/* Completion belongs to tasks.
                 This item was the last place still offering it to everything,
                 and so the only way an event could reach the archive at all.
                 It stays visible on an already-completed entry of any type,
