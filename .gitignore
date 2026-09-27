@@ -25,3 +25,6 @@ graphify-out/
 # Per-machine editor settings. Nothing here is shared config — the one file that
 # appeared recorded an absolute path to a single developer's home directory.
 .vscode/
+
+# Product docs and specs are kept local, not in the public repo.
+docs/
