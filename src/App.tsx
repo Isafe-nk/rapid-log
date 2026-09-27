@@ -1206,16 +1206,30 @@ export default function App() {
   };
 
   const changeTimeOfDay = async (id: string, timeOfDay: TimeOfDay) => {
-    const previous = todos.find(t => t.id === id)?.timeOfDay;
-    setTodos(prev => prev.map(t => t.id === id ? { ...t, timeOfDay } : t));
+    const todo = todos.find(t => t.id === id);
+    if (!todo) return;
+    // Not a move. Without this, re-picking a timed entry's own section would
+    // clear its time below for nothing.
+    if (todo.timeOfDay === timeOfDay) return;
+
+    const previous = { timeOfDay: todo.timeOfDay, time: todo.time, endTime: todo.endTime };
+    const updates: Partial<Todo> = { timeOfDay };
+    // A time belongs to its section: "9:00 AM" in Night is a contradiction. So a
+    // timed entry loses its time on the way, silently and in the same write.
+    if (todo.time) {
+      updates.time = null;
+      updates.endTime = null;
+    }
+
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     if (localOnly) return;
     try {
-      await updateDoc(doc(db, 'todos', id), { timeOfDay });
+      await updateDoc(doc(db, 'todos', id), updates);
     } catch (error) {
       reportSaveError(error, 'Error changing time of day:');
-      if (previous) {
-        setTodos(prev => prev.map(t => t.id === id ? { ...t, timeOfDay: previous } : t));
-      }
+      setTodos(prev => prev.map(t => t.id === id
+        ? { ...t, timeOfDay: previous.timeOfDay, time: previous.time, endTime: previous.endTime }
+        : t));
     }
   };
 
