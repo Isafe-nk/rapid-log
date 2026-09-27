@@ -13,7 +13,8 @@ import {
   Edit3,
   Check,
   Copy,
-  Github
+  Github,
+  Clock
 } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult, isNative } from './lib/firebase';
@@ -189,6 +190,169 @@ const spanLabel = (minutes: number) => {
   const m = minutes % 60;
   if (!h) return `${m} min`;
   return m ? `${h} hr ${m}` : `${h} hr`;
+};
+
+// Every end the clock may offer after a start: one each END_STEP minutes, out
+// to END_MAX. The composer builds the same list from its own state.
+const endChoicesFor = (start: number) => {
+  const out: { offset: number; hour: number; minute: string; meridiem: string }[] = [];
+  for (let d = END_STEP; d <= END_MAX; d += END_STEP) {
+    const t = (start + d) % 1440;
+    const h24 = Math.floor(t / 60);
+    out.push({
+      offset: d,
+      hour: h24 % 12 === 0 ? 12 : h24 % 12,
+      minute: (t % 60).toString().padStart(2, '0'),
+      meridiem: h24 >= 12 ? 'PM' : 'AM'
+    });
+  }
+  return out;
+};
+
+// Edit Time: the composer's clock, on a row that already exists. It holds no
+// state of its own — everything is read back from the entry — because every
+// select writes as it changes, so the entry is always what it shows. There is
+// no save button to wait for, and closing it discards nothing.
+const EntryTimeEditor: React.FC<{
+  entry: Todo;
+  onChange: (time: string | null, endTime: string | null) => void;
+  onClose: () => void;
+}> = ({ entry, onChange, onClose }) => {
+  const clock = SECTION_CLOCK[entry.timeOfDay];
+  const start = minutesOfDay(entry.time)
+    ?? startMinutesOf(entry.timeOfDay, String(clock.defaultHour), '00');
+  const h24 = Math.floor(start / 60);
+  const hour = String(h24 % 12 === 0 ? 12 : h24 % 12);
+  const minute = (start % 60).toString().padStart(2, '0');
+
+  // The end is edited as a span from the start, as in the composer, so it
+  // cannot land on or before it. A stored span off the 15-minute grid or past
+  // END_MAX is brought onto it; the next write stores the corrected value.
+  const endAt = minutesOfDay(entry.endTime);
+  const span = endAt === null ? 0 : (((endAt - start) % 1440) + 1440) % 1440;
+  const offset = span === 0
+    ? null
+    : Math.min(END_MAX, Math.max(END_STEP, Math.round(span / END_STEP) * END_STEP));
+  const choices = endChoicesFor(start);
+  const endChoice = choices.find(c => c.offset === offset) ?? null;
+  const endHours = choices.map(c => c.hour).filter((h, i, all) => all.indexOf(h) === i);
+
+  const write = (nextStart: number, nextOffset: number | null) =>
+    onChange(clockLabel(nextStart), nextOffset === null ? null : clockLabel(nextStart + nextOffset));
+
+  // Moving the start carries the end with it: an hour-long entry stays an hour.
+  const pickStart = (h: string, m: string) => write(startMinutesOf(entry.timeOfDay, h, m), offset);
+
+  const pickEndHour = (h: number) => {
+    const inHour = choices.filter(c => c.hour === h);
+    if (!inHour.length) return;
+    const same = inHour.find(c => c.minute === endChoice?.minute);
+    write(start, (same ?? inHour[0]).offset);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.26, ease: EASE }}
+      className="flex items-center gap-2 flex-wrap mt-2 w-full"
+      // A press anywhere in the editor but a select keeps focus where it is.
+      // WebKit does not focus a clicked button, so without this "+ end time" or
+      // "remove" — or just its own labels — would blur the select, close the
+      // editor and swallow the click.
+      onMouseDown={(e) => {
+        if (!(e.target instanceof HTMLSelectElement)) e.preventDefault();
+      }}
+      // Closes when focus leaves the editor, not when it moves between its own
+      // selects.
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+      }}
+    >
+      <span className={CLOCK_LABEL}>{endChoice ? 'From' : 'At'}</span>
+
+      <div className={CLOCK_FIELD}>
+        <select
+          autoFocus
+          value={hour}
+          onChange={(e) => pickStart(e.target.value, minute)}
+          className={CLOCK_SELECT}
+        >
+          {clock.hours.map((h) => (
+            <option key={h} value={h}>{h}</option>
+          ))}
+        </select>
+        <span className="text-[10px] text-neutral-300 font-bold">:</span>
+        <select
+          value={minute}
+          onChange={(e) => pickStart(hour, e.target.value)}
+          className={CLOCK_SELECT}
+        >
+          {MINUTE_OPTIONS.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+        <span className="text-[9px] font-bold uppercase text-neutral-400 ml-0.5">
+          {clock.meridiem}
+        </span>
+      </div>
+
+      {endChoice ? (
+        <span className="inline-flex items-center">
+          <span className={`${CLOCK_LABEL} mx-1`}>until</span>
+          <div className={CLOCK_FIELD}>
+            <select
+              value={endChoice.hour}
+              onChange={(e) => pickEndHour(Number(e.target.value))}
+              className={CLOCK_SELECT}
+            >
+              {endHours.map((h) => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="text-[10px] text-neutral-300 font-bold">:</span>
+            <select
+              value={endChoice.offset}
+              onChange={(e) => {
+                const next = parseInt(e.target.value, 10);
+                if (!Number.isNaN(next)) write(start, next);
+              }}
+              className={CLOCK_SELECT}
+            >
+              {choices.filter((c) => c.hour === endChoice.hour).map((c) => (
+                <option key={c.offset} value={c.offset}>{c.minute}</option>
+              ))}
+            </select>
+            <span className="text-[9px] font-bold uppercase text-neutral-400 ml-0.5">
+              {endChoice.meridiem}
+            </span>
+          </div>
+          <span className="text-[9px] uppercase tracking-wider text-[#c4c4bd] ml-[22px]">
+            {spanLabel(endChoice.offset)}
+          </span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => write(start, 60)}
+          className={`${HOVER_LINK} ml-2`}
+        >
+          + end time
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => { onChange(null, null); onClose(); }}
+        className="ml-auto text-[9px] tracking-wider text-[#c4c4bd] hover:text-neutral-500 transition-colors"
+      >
+        remove
+      </button>
+    </motion.div>
+  );
 };
 
 const parseDate = (val: any): Date | null => {
@@ -636,6 +800,7 @@ export default function App() {
 
   // Inline edit state
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>('');
 
   const [authError, setAuthError] = useState<string | null>(null);
@@ -1299,6 +1464,20 @@ export default function App() {
       setTodos(prev => prev.map(t => t.id === id
         ? { ...t, timeOfDay: previous.timeOfDay, time: previous.time, endTime: previous.endTime }
         : t));
+    }
+  };
+
+  const updateTodoTime = async (id: string, time: string | null, endTime: string | null) => {
+    const previous = todos.find(t => t.id === id);
+    if (!previous) return;
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, time, endTime } : t));
+    if (localOnly) return;
+    try {
+      await updateDoc(doc(db, 'todos', id), { time, endTime });
+    } catch (error) {
+      reportSaveError(error, 'Error updating time:');
+      setTodos(prev => prev.map(t => t.id === id
+        ? { ...t, time: previous.time, endTime: previous.endTime } : t));
     }
   };
 
@@ -2238,7 +2417,13 @@ export default function App() {
                           )}
                           </div>
 
-                          {(entry.time || entry.endTime) && (
+                          {editingTimeId === entry.id ? (
+                            <EntryTimeEditor
+                              entry={entry}
+                              onChange={(time, endTime) => updateTodoTime(entry.id, time, endTime)}
+                              onClose={() => setEditingTimeId(null)}
+                            />
+                          ) : (entry.time || entry.endTime) && (
                             <span className="mt-1 text-[10px] text-neutral-400 font-bold tabular-nums opacity-60 leading-none whitespace-nowrap">
                               {entry.time}
                               {entry.endTime && <> — {entry.endTime}</>}
@@ -2360,7 +2545,13 @@ export default function App() {
                         <span className="text-lg leading-relaxed pt-0.5 text-neutral-300 line-through decoration-neutral-200 truncate">
                           {entry.text}
                         </span>
-                        {(entry.time || entry.endTime) && (
+                        {editingTimeId === entry.id ? (
+                          <EntryTimeEditor
+                            entry={entry}
+                            onChange={(time, endTime) => updateTodoTime(entry.id, time, endTime)}
+                            onClose={() => setEditingTimeId(null)}
+                          />
+                        ) : (entry.time || entry.endTime) && (
                           <span className="mt-1 text-[10px] text-neutral-300 font-bold tabular-nums opacity-70 leading-none whitespace-nowrap">
                             {entry.time}
                             {entry.endTime && <> — {entry.endTime}</>}
@@ -2481,6 +2672,29 @@ export default function App() {
               <Edit3 size={13} className="text-neutral-500" />
               <span>Edit Entry</span>
             </button>
+
+            {/* A note has no clock, so it has no time to edit. */}
+            {contextMenu.todo.type !== 'note' && (
+              <button
+                onClick={() => {
+                  const t = contextMenu.todo;
+                  // Asking to edit the time of an untimed entry is asking for
+                  // one, so it gets its section's default straight away. The
+                  // selects only write on change, and a default that is
+                  // already selected cannot be chosen again to set it.
+                  if (!t.time) {
+                    const d = SECTION_CLOCK[t.timeOfDay].defaultHour;
+                    updateTodoTime(t.id, clockLabel(startMinutesOf(t.timeOfDay, String(d), '00')), null);
+                  }
+                  setEditingTimeId(t.id);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-neutral-100 rounded-lg flex items-center gap-2.5 transition-colors"
+              >
+                <Clock size={13} className="text-neutral-400" />
+                <span>Edit Time</span>
+              </button>
+            )}
 
             {/* Completion belongs to tasks.
                 This item was the last place still offering it to everything,
