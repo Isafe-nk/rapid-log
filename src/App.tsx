@@ -21,6 +21,7 @@ import {
   collection, 
   query, 
   where, 
+  orderBy,
   onSnapshot, 
   addDoc, 
   updateDoc, 
@@ -243,6 +244,16 @@ const isSameDay = (d1: Date, d2: Date) =>
 // Entries with a missing/unparseable timestamp fall back to today so they stay
 // reachable on today's log instead of appearing on every single date.
 const entryDateOf = (t: Todo, today: Date) => parseDate(t.createdAt) ?? today;
+
+// "Wed, 24 Sep" — the day an Earlier task was written. Names from en-US on
+// purpose: en-GB now abbreviates September to "Sept", which breaks the column.
+const earlierDateLabel = (val: any): string => {
+  const d = parseDate(val);
+  if (!d) return '';
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const month = d.toLocaleDateString('en-US', { month: 'short' });
+  return `${weekday}, ${d.getDate()} ${month}`;
+};
 
 // Positions are animated with transforms rather than height. Height forces the
 // browser to recompute layout every frame and reposition everything below, which
@@ -904,6 +915,44 @@ export default function App() {
     // `importSettled` is what brings the effect back once the batch is done.
   }, [user, isGuest, loadFromMs, bounded, importSettled]);
 
+  // Unfinished tasks from before today, for the Earlier section. A query of its
+  // own rather than a filter on `todos`, because `todos` only reaches back
+  // HISTORY_DAYS and this has no floor: a task left open three months ago is
+  // still open, and hiding it would hide the one thing this section is for.
+  const viewingToday = isSameDay(currentDate, new Date(todayStart));
+  const [earlierRemote, setEarlierRemote] = useState<Todo[]>([]);
+  // Every Earlier task this session has seen, by id. A tick is written at once
+  // and Firestore drops the row from the query on the spot, so without this a
+  // task older than the loaded window would vanish mid-settle — and toggleTodo,
+  // which looks in `todos`, would not find it to tick in the first place.
+  const earlierSeen = useRef(new Map<string, Todo>());
+
+  useEffect(() => {
+    if (!user || localOnly || !viewingToday) {
+      setEarlierRemote([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'todos'),
+      where('userId', '==', user.uid),
+      where('completed', '==', false),
+      where('type', '==', 'task'),
+      where('createdAt', '<', todayStart),
+      orderBy('createdAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Todo[];
+      fetched.forEach(t => earlierSeen.current.set(t.id, t));
+      setEarlierRemote(fetched);
+    }, (error) => {
+      // Silent by design: the index may still be building, and a missing
+      // section is less disruptive than a notice nobody can act on.
+      console.warn('[RapidLog] Earlier query unavailable:', error);
+      setEarlierRemote([]);
+    });
+    return () => unsubscribe();
+  }, [user, localOnly, viewingToday, todayStart]);
+
   // Read through a ref by the midnight timer below: that effect runs once, so
   // anything it closed over directly would be the value from first render.
   const currentDateRef = useRef(currentDate);
@@ -1080,6 +1129,28 @@ export default function App() {
       .sort(byTimeThenCreated);
   }, [todos, currentDate, todayStart, settling]);
 
+  // The Earlier rows: open tasks from before today, newest first. A guest has
+  // no query, so theirs are filtered from memory by the same rule. A row being
+  // ticked has already left the source — the write is immediate — so it is held
+  // here until its settle ends, the same beat every other row gets.
+  const earlierTodos = useMemo(() => {
+    if (!viewingToday) return [];
+    const isEarlierTask = (t: Todo) => {
+      const d = parseDate(t.createdAt);
+      return t.type === 'task' && d !== null && d.getTime() < todayStart;
+    };
+    const source = localOnly
+      ? todos.filter(t => isEarlierTask(t) && !t.completed)
+      : earlierRemote;
+    const rows = new Map<string, Todo>(source.map(t => [t.id, t]));
+    for (const id of Object.keys(settling)) {
+      if (settling[id] !== true || rows.has(id)) continue;
+      const held = todos.find(t => t.id === id) ?? earlierSeen.current.get(id);
+      if (held && isEarlierTask(held)) rows.set(id, held);
+    }
+    return [...rows.values()].sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+  }, [viewingToday, localOnly, todos, earlierRemote, settling, todayStart]);
+
   const addTodo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || (!user && !isGuest)) return;
@@ -1152,7 +1223,7 @@ export default function App() {
     });
 
   const toggleTodo = async (id: string) => {
-    const todo = todos.find(t => t.id === id);
+    const todo = todos.find(t => t.id === id) ?? earlierSeen.current.get(id);
     if (!todo) return;
     // Completion is a property of tasks only. An already-completed non-task is
     // legacy data and may still be restored; anything else is refused here, as
@@ -1901,6 +1972,92 @@ export default function App() {
           </div>
           <input type="submit" hidden />
         </motion.form>
+
+        {/* Earlier — open tasks from past days, today only. A pointer to where
+            each task lives, not a second copy of it: tick or delete here, and
+            navigate to its day for anything else. So no drag, no edit, no
+            context menu. Absent entirely when there is nothing to show. */}
+        <AnimatePresence>
+          {earlierTodos.length > 0 && (
+            <motion.div
+              key="earlier"
+              className="relative rounded-2xl -mx-4 px-4 py-4 mb-20"
+              {...reveal(appVisible, 0.09)}
+              exit={{ opacity: 0, transition: { duration: 0.2 } }}
+            >
+              <motion.div layout="position" transition={{ layout: GLIDE }} className="flex items-center gap-4 mb-8">
+                <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-300">Earlier</h3>
+                <div className="h-px flex-1 bg-neutral-100" />
+              </motion.div>
+
+              <div>
+                <AnimatePresence initial={false}>
+                  {earlierTodos.map((entry) => {
+                    const ticked = settling[entry.id] === true || entry.completed;
+                    return (
+                      <motion.div
+                        key={entry.id}
+                        layout="position"
+                        transition={{ layout: GLIDE }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1, transition: { duration: 0.2 } }}
+                        exit={{ opacity: 0, transition: { duration: 0.2 } }}
+                        className="group flex items-start mb-4 transition-colors gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50"
+                      >
+                        <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+                          <PrioritySlot on={entry.priority} />
+                          <button
+                            onClick={() => toggleTodo(entry.id)}
+                            style={glyphStyle('task')}
+                            className={`flex items-center justify-center transition-colors duration-200 cursor-pointer mt-0.5 ${
+                              ticked
+                                ? 'border-neutral-900 bg-neutral-900'
+                                : 'border-neutral-300 hover:border-neutral-900'
+                            }`}
+                          >
+                            {ticked && (
+                              <motion.svg
+                                viewBox="0 0 24 24"
+                                className="w-3.5 h-3.5 text-white"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                                initial={{ scale: 0.3, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={{ type: 'spring', stiffness: 520, damping: 18 }}
+                              >
+                                <polyline points="20 6 9 17 4 12" />
+                              </motion.svg>
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="flex-1 min-w-0 flex items-baseline gap-4 text-lg leading-relaxed pt-0.5">
+                          <span className={`flex-1 min-w-0 transition-colors duration-200 ${
+                            ticked ? 'line-through decoration-neutral-300 text-neutral-400' : ''
+                          }`}>
+                            {entry.text}
+                          </span>
+                          <span className="text-[10px] text-neutral-300 font-bold tabular-nums whitespace-nowrap">
+                            {earlierDateLabel(entry.createdAt)}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => deleteTodo(entry.id)}
+                          className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-400 transition-all p-1 mt-0.5"
+                          title="Delete entry"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Sections */}
         <motion.div className="space-y-20" {...reveal(appVisible, 0.12)}>
