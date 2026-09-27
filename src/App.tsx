@@ -1129,20 +1129,18 @@ export default function App() {
       .sort(byTimeThenCreated);
   }, [todos, currentDate, todayStart, settling]);
 
-  // The Earlier rows: open tasks from before today, newest first. A guest has
-  // no query, so theirs are filtered from memory by the same rule. A row being
-  // ticked has already left the source — the write is immediate — so it is held
-  // here until its settle ends, the same beat every other row gets.
+  // The Earlier rows: open tasks from before today, newest first. Signed in
+  // only — a guest's entries live in memory and do not outlast the session, so
+  // there is no earlier for them to have. A row being ticked has already left
+  // the query — the write is immediate — so it is held here until its settle
+  // ends, the same beat every other row gets.
   const earlierTodos = useMemo(() => {
-    if (!viewingToday) return [];
+    if (!viewingToday || localOnly) return [];
     const isEarlierTask = (t: Todo) => {
       const d = parseDate(t.createdAt);
       return t.type === 'task' && d !== null && d.getTime() < todayStart;
     };
-    const source = localOnly
-      ? todos.filter(t => isEarlierTask(t) && !t.completed)
-      : earlierRemote;
-    const rows = new Map<string, Todo>(source.map(t => [t.id, t]));
+    const rows = new Map<string, Todo>(earlierRemote.map(t => [t.id, t]));
     for (const id of Object.keys(settling)) {
       if (settling[id] !== true || rows.has(id)) continue;
       const held = todos.find(t => t.id === id) ?? earlierSeen.current.get(id);
