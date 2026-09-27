@@ -14,7 +14,8 @@ import {
   Check,
   Copy,
   Github,
-  Clock
+  Clock,
+  ChevronDown
 } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult, isNative } from './lib/firebase';
@@ -347,7 +348,7 @@ const EntryTimeEditor: React.FC<{
       <button
         type="button"
         onClick={() => { onChange(null, null); onClose(); }}
-        className="ml-auto text-[9px] tracking-wider text-[#c4c4bd] hover:text-neutral-500 transition-colors"
+        className="ml-auto text-[9px] tracking-wider text-[#c4c4bd] hover:text-red-400 transition-colors"
       >
         remove
       </button>
@@ -490,6 +491,10 @@ const GUEST_USER_ID = 'guest';
 // here indefinitely, so anything older than the trip could plausibly take is
 // discarded rather than turning up in a later session.
 const GUEST_HANDOFF_KEY = 'rapidlog.guest-handoff';
+
+// Whether this browser has folded the Earlier section away. A display
+// preference only — it never leaves the browser and holds no entry data.
+const EARLIER_COLLAPSED_KEY = 'rapidlog.earlier-collapsed';
 const GUEST_HANDOFF_TTL = 10 * 60 * 1000;
 
 const clearGuestHandoff = () => {
@@ -1091,6 +1096,16 @@ export default function App() {
   // task older than the loaded window would vanish mid-settle — and toggleTodo,
   // which looks in `todos`, would not find it to tick in the first place.
   const earlierSeen = useRef(new Map<string, Todo>());
+  // Storage can throw (a private window, blocked site data), and a preference
+  // is not worth breaking the page over — it just starts expanded.
+  const [earlierCollapsed, setEarlierCollapsed] = useState(() => {
+    try { return localStorage.getItem(EARLIER_COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
+  const toggleEarlier = () => {
+    const next = !earlierCollapsed;
+    setEarlierCollapsed(next);
+    try { localStorage.setItem(EARLIER_COLLAPSED_KEY, next ? '1' : '0'); } catch { /* keep it for this session */ }
+  };
 
   useEffect(() => {
     if (!user || localOnly || !viewingToday) {
@@ -2162,14 +2177,36 @@ export default function App() {
               {...reveal(appVisible, 0.09)}
               exit={{ opacity: 0, transition: { duration: 0.2 } }}
             >
-              <motion.div layout="position" transition={{ layout: GLIDE }} className="flex items-center gap-4 mb-8">
-                <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-300">Earlier</h3>
+              {/* The whole header folds the section. Folded, it keeps its count,
+                  so hidden tasks never read as no tasks. */}
+              <motion.button
+                type="button"
+                layout="position"
+                transition={{ layout: GLIDE }}
+                onClick={toggleEarlier}
+                aria-expanded={!earlierCollapsed}
+                className={`group/earlier flex items-center gap-4 w-full text-left focus:outline-none ${earlierCollapsed ? '' : 'mb-8'}`}
+              >
+                <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors">
+                  Earlier
+                </h3>
+                <span className="text-[10px] font-black tabular-nums text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors -ml-2">
+                  {earlierTodos.length}
+                </span>
                 <div className="h-px flex-1 bg-neutral-100" />
-              </motion.div>
+                <motion.span
+                  className="text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors"
+                  initial={false}
+                  animate={{ rotate: earlierCollapsed ? -90 : 0 }}
+                  transition={{ duration: 0.25, ease: EASE }}
+                >
+                  <ChevronDown size={12} />
+                </motion.span>
+              </motion.button>
 
               <div>
                 <AnimatePresence initial={false}>
-                  {earlierTodos.map((entry) => {
+                  {!earlierCollapsed && earlierTodos.map((entry) => {
                     const ticked = settling[entry.id] === true || entry.completed;
                     return (
                       <motion.div
