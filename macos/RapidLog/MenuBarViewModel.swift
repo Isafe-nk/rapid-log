@@ -131,6 +131,9 @@ class MenuBarViewModel: ObservableObject {
 
     func toggleLocalTask(_ id: String) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }
+        // Completion is a property of tasks only; an already-completed non-task
+        // is legacy data and may still be restored. Mirrors toggleTodo.
+        guard tasks[index].type == "task" || tasks[index].completed else { return }
         // Ignore repeat taps while a row is mid-animation.
         guard settling[id] == nil else { return }
 

@@ -904,6 +904,11 @@ export default function App() {
     // `importSettled` is what brings the effect back once the batch is done.
   }, [user, isGuest, loadFromMs, bounded, importSettled]);
 
+  // Read through a ref by the midnight timer below: that effect runs once, so
+  // anything it closed over directly would be the value from first render.
+  const currentDateRef = useRef(currentDate);
+  currentDateRef.current = currentDate;
+
   // Roll `todayStart` over at midnight so a window left open overnight stops
   // reporting yesterday. Reschedules itself so a DST shift can't strand it.
   useEffect(() => {
@@ -913,6 +918,15 @@ export default function App() {
       nextMidnight.setHours(24, 0, 0, 0);
       timer = window.setTimeout(() => {
         setTodayStart(startOfToday());
+        // Follow the day forward only if the view was on the day that just
+        // ended. Someone reading an older page is left where they are.
+        const ended = new Date();
+        ended.setDate(ended.getDate() - 1);
+        if (isSameDay(currentDateRef.current, ended)) {
+          const now = new Date();
+          setCurrentDate(now);
+          setViewDate(now);
+        }
         schedule();
       }, nextMidnight.getTime() - Date.now() + 500);
     };
@@ -1140,6 +1154,10 @@ export default function App() {
   const toggleTodo = async (id: string) => {
     const todo = todos.find(t => t.id === id);
     if (!todo) return;
+    // Completion is a property of tasks only. An already-completed non-task is
+    // legacy data and may still be restored; anything else is refused here, as
+    // a safety net for the day a surface forgets the rule again.
+    if (todo.type !== 'task' && !todo.completed) return;
     // Ignore repeat clicks while a row is mid-animation.
     if (settling[id] !== undefined) return;
 
