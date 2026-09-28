@@ -43,6 +43,9 @@ Always adhere to these styling tokens inside React components and Tailwind CSS r
     which is 20px and solid in the same column. The size gap is what says
     "a different kind of thing" rather than "the same thing in another state".
   * Notes: left border offset indent bar (`border-l-4 border-neutral-200 pl-6 ml-4`).
+  * Migrated (a task rewritten onto a later day): lucide `ChevronRight`, the
+    journal's `>`. Its text is not struck — it was carried, not finished.
+  * Dropped (a task let go): the task's empty box, faded, with struck text.
   * Priority: lucide `Star`, 14px, filled — `text-amber-500` on a live row and
     `text-neutral-300` on a completed one, which is deliberately faded.
 * **Ticking is for tasks.** A task carries the only completion control in the

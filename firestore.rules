@@ -23,7 +23,7 @@ service cloud.firestore {
         // reads as a deliberate step rather than an invisible ceiling.
         && data.keys().hasOnly([
           'text', 'completed', 'type', 'timeOfDay', 'time',
-          'endTime', 'priority', 'userId', 'createdAt'
+          'endTime', 'priority', 'userId', 'createdAt', 'resolution'
         ])
         && data.text is string && data.text.size() <= 1000
         && data.completed is bool
@@ -33,7 +33,12 @@ service cloud.firestore {
         && data.createdAt is number
         && (data.get('time', null) == null || data.time is string)
         && (data.get('endTime', null) == null || data.endTime is string)
-        && (data.get('priority', null) == null || data.priority is bool);
+        && (data.get('priority', null) == null || data.priority is bool)
+        // Only a task can be rewritten or dropped, and only once it is closed.
+        && (data.get('resolution', null) == null
+            || (data.resolution in ['migrated', 'dropped']
+                && data.type == 'task'
+                && data.completed == true));
     }
 
     // --- Collection: Todos ---

@@ -15,7 +15,8 @@ import {
   Copy,
   Github,
   Clock,
-  ChevronDown
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { Todo, EntryType, TimeOfDay } from './types';
 import { auth, db, signInWithGoogle, logout, handleRedirectResult, isNative } from './lib/firebase';
@@ -412,6 +413,17 @@ const entryDateOf = (t: Todo, today: Date) => parseDate(t.createdAt) ?? today;
 
 // "Wed, 24 Sep" — the day an Earlier task was written. Names from en-US on
 // purpose: en-GB now abbreviates September to "Sept", which breaks the column.
+// How long an Earlier task has been waiting, which is what the section wants
+// you to feel. The calendar date is only a fact, and goes in the tooltip.
+const earlierAgeLabel = (val: any, todayStart: number): string => {
+  const d = parseDate(val);
+  if (!d) return '';
+  d.setHours(0, 0, 0, 0);
+  // Rounded, not floored: a day that crossed a DST change is 23 or 25 hours.
+  const days = Math.round((todayStart - d.getTime()) / 86_400_000);
+  return days <= 1 ? 'yesterday' : `${days} days ago`;
+};
+
 const earlierDateLabel = (val: any): string => {
   const d = parseDate(val);
   if (!d) return '';
@@ -1101,6 +1113,11 @@ export default function App() {
   const [earlierCollapsed, setEarlierCollapsed] = useState(() => {
     try { return localStorage.getItem(EARLIER_COLLAPSED_KEY) === '1'; } catch { return false; }
   });
+  // The Earlier task being rewritten into the composer, if any. It stays in the
+  // section, dimmed, until the rewrite is committed with Enter — so a task is
+  // never out of Earlier before it has actually been written again.
+  const [rewritingId, setRewritingId] = useState<string | null>(null);
+
   const toggleEarlier = () => {
     const next = !earlierCollapsed;
     setEarlierCollapsed(next);
@@ -1322,7 +1339,10 @@ export default function App() {
     };
     const rows = new Map<string, Todo>(earlierRemote.map(t => [t.id, t]));
     for (const id of Object.keys(settling)) {
-      if (settling[id] !== true || rows.has(id)) continue;
+      if (settling[id] !== true) continue;
+      // The held copy, even while the query still has the row: it is the one
+      // that knows the task is being dropped or migrated, so the row can show
+      // that for its beat instead of a tick.
       const held = todos.find(t => t.id === id) ?? earlierSeen.current.get(id);
       if (held && isEarlierTask(held)) rows.set(id, held);
     }
@@ -1367,6 +1387,13 @@ export default function App() {
       createdAt: entryDate.getTime(),
     };
 
+    // Only while the original is still open in Earlier. If it was closed some
+    // other way meanwhile — ticked in the popover, on another device — this is
+    // simply a new task.
+    const migratingId = rewritingId && earlierRemote.some(t => t.id === rewritingId)
+      ? rewritingId : null;
+    setRewritingId(null);
+
     setInputText('');
     // Back to this section's default, and no end. `useTime` deliberately stays
     // as it was, so several timed entries can be logged in a row.
@@ -1381,6 +1408,37 @@ export default function App() {
     if (isGuest && !user) {
       setTodos(prev => [...prev, { id: newLocalId(), ...newTodoData }]);
       return;
+    }
+
+    if (migratingId) {
+      const original = todos.find(t => t.id === migratingId) ?? earlierSeen.current.get(migratingId);
+      if (original) {
+        earlierSeen.current.set(migratingId, { ...original, completed: true, resolution: 'migrated' });
+        setSettling(prev => ({ ...prev, [migratingId]: true }));
+        setTodos(prev => prev.map(t => t.id === migratingId
+          ? { ...t, completed: true, resolution: 'migrated' } : t));
+        window.setTimeout(() => clearSettling(migratingId), 320);
+        // One batch, so the two writes land together or not at all. Apart,
+        // a failure between them would leave the task written twice, or
+        // marked migrated with nothing written in its place.
+        try {
+          const batch = writeBatch(db);
+          batch.set(doc(collection(db, 'todos')), newTodoData);
+          batch.update(doc(db, 'todos', migratingId), { completed: true, resolution: 'migrated' });
+          await batch.commit();
+        } catch (error) {
+          reportSaveError(error, 'Error rewriting task:');
+          earlierSeen.current.set(migratingId, original);
+          setTodos(prev => prev.map(t => t.id === migratingId
+            ? { ...t, completed: original.completed, resolution: original.resolution } : t));
+          clearSettling(migratingId);
+          // Back to where it was a moment ago, so it can be retried.
+          setInputText(newTodoData.text);
+          setIsPriority(newTodoData.priority);
+          setRewritingId(migratingId);
+        }
+        return;
+      }
     }
 
     try {
@@ -1411,19 +1469,89 @@ export default function App() {
     if (settling[id] !== undefined) return;
 
     const target = !todo.completed;
+    // Reopening a rewritten or dropped task forgets how it closed. It has to:
+    // the rules refuse an open task that still carries a resolution.
+    const reopening = !target && !!todo.resolution;
+    const change = reopening ? { completed: target, resolution: null } : { completed: target };
     setSettling(prev => ({ ...prev, [id]: target }));
-    setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: target } : t));
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, ...change } : t));
     window.setTimeout(() => clearSettling(id), 320);
 
     if (localOnly) return;
     try {
-      await updateDoc(doc(db, 'todos', id), { completed: target });
+      await updateDoc(doc(db, 'todos', id), change);
     } catch (error) {
       reportSaveError(error, 'Error toggling todo:');
-      setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: todo.completed } : t));
+      setTodos(prev => prev.map(t => t.id === id
+        ? { ...t, completed: todo.completed, resolution: todo.resolution } : t));
       clearSettling(id);
     }
   };
+
+  // Drop: closed as not worth doing. Not deleted — it stays on its own day,
+  // struck through, as the record that it was let go.
+  const dropTask = async (id: string) => {
+    const todo = todos.find(t => t.id === id) ?? earlierSeen.current.get(id);
+    if (!todo || todo.type !== 'task' || todo.completed) return;
+    if (settling[id] !== undefined) return;
+
+    earlierSeen.current.set(id, { ...todo, completed: true, resolution: 'dropped' });
+    setSettling(prev => ({ ...prev, [id]: true }));
+    setTodos(prev => prev.map(t => t.id === id ? { ...t, completed: true, resolution: 'dropped' } : t));
+    window.setTimeout(() => clearSettling(id), 320);
+
+    if (localOnly) return;
+    try {
+      await updateDoc(doc(db, 'todos', id), { completed: true, resolution: 'dropped' });
+    } catch (error) {
+      reportSaveError(error, 'Error dropping task:');
+      earlierSeen.current.set(id, todo);
+      setTodos(prev => prev.map(t => t.id === id
+        ? { ...t, completed: todo.completed, resolution: todo.resolution } : t));
+      clearSettling(id);
+    }
+  };
+
+  // Rewrite: the words go back in front of you, in the composer, to be
+  // committed to again. Nothing is written until Enter. Refused while the
+  // composer holds something else, so it never overwrites a draft.
+  const beginRewrite = (entry: Todo) => {
+    if (inputText.trim() || rewritingId) return;
+    setRewritingId(entry.id);
+    setInputText(entry.text);
+    setSelectedType('task');
+    setSelectedTime(entry.timeOfDay);
+    setIsPriority(!!entry.priority);
+    // A clock time from a day that has gone means nothing today.
+    setUseTime(false);
+    setEndOffset(null);
+    requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  };
+
+  const cancelRewrite = () => {
+    setRewritingId(null);
+    setInputText('');
+    setIsPriority(false);
+  };
+
+  // Clearing the composer is also a way of saying no.
+  useEffect(() => {
+    if (rewritingId && !inputText.trim()) {
+      setRewritingId(null);
+      setIsPriority(false);
+    }
+  }, [inputText, rewritingId]);
+
+  // Earlier exists only on today. Leaving it ends the rewrite; whatever is in
+  // the composer stays, as an ordinary draft.
+  useEffect(() => {
+    if (!viewingToday) setRewritingId(null);
+  }, [viewingToday]);
 
   const togglePriority = async (id: string) => {
     const todo = todos.find(t => t.id === id);
@@ -1929,6 +2057,9 @@ export default function App() {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && rewritingId) { e.preventDefault(); cancelRewrite(); }
+                }}
                 maxLength={1000}
                 ref={inputRef}
                 placeholder="Log..."
@@ -2187,11 +2318,13 @@ export default function App() {
                 aria-expanded={!earlierCollapsed}
                 className={`group/earlier flex items-center gap-4 w-full text-left focus:outline-none ${earlierCollapsed ? '' : 'mb-8'}`}
               >
+                {/* "Tasks", because tasks are the only thing in here and the only
+                    thing that asks to be decided on. */}
                 <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors">
-                  Earlier
+                  Earlier tasks
                 </h3>
                 <span className="text-[10px] font-black tabular-nums text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors -ml-2">
-                  {earlierTodos.length}
+                  — {earlierTodos.length}
                 </span>
                 <div className="h-px flex-1 bg-neutral-100" />
                 <motion.span
@@ -2207,63 +2340,110 @@ export default function App() {
               <div>
                 <AnimatePresence initial={false}>
                   {!earlierCollapsed && earlierTodos.map((entry) => {
-                    const ticked = settling[entry.id] === true || entry.completed;
+                    // Each row is a decision: done, rewrite, or drop. While one
+                    // of them lands, the row shows which for its beat.
+                    const migrated = entry.resolution === 'migrated';
+                    const dropped = entry.resolution === 'dropped';
+                    const ticked = !entry.resolution && (settling[entry.id] === true || entry.completed);
+                    const closing = settling[entry.id] !== undefined;
+                    const rewriting = rewritingId === entry.id;
+                    // Never over something being typed, and one at a time.
+                    const canRewrite = !closing && !rewritingId && !inputText.trim();
                     return (
                       <motion.div
                         key={entry.id}
                         layout="position"
                         transition={{ layout: GLIDE }}
                         initial={{ opacity: 0 }}
-                        animate={{ opacity: 1, transition: { duration: 0.2 } }}
+                        animate={{ opacity: rewriting ? 0.45 : 1, transition: { duration: 0.2 } }}
                         exit={{ opacity: 0, transition: { duration: 0.2 } }}
                         className="group flex items-start mb-4 transition-colors gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50"
                       >
                         <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                           <PrioritySlot on={entry.priority} />
-                          <button
-                            onClick={() => toggleTodo(entry.id)}
-                            style={glyphStyle('task')}
-                            className={`flex items-center justify-center transition-colors duration-200 cursor-pointer mt-0.5 ${
-                              ticked
-                                ? 'border-neutral-900 bg-neutral-900'
-                                : 'border-neutral-300 hover:border-neutral-900'
-                            }`}
-                          >
-                            {ticked && (
-                              <motion.svg
-                                viewBox="0 0 24 24"
-                                className="w-3.5 h-3.5 text-white"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                                initial={{ scale: 0.3, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                transition={{ type: 'spring', stiffness: 520, damping: 18 }}
-                              >
-                                <polyline points="20 6 9 17 4 12" />
-                              </motion.svg>
-                            )}
-                          </button>
+                          {migrated ? (
+                            // Drawn, not typed: the bullet journal's ">".
+                            <span
+                              className="flex items-center justify-center mt-0.5 text-neutral-400"
+                              style={{ width: GLYPH_SHAPE.task.width, height: GLYPH_SHAPE.task.height }}
+                            >
+                              <ChevronRight size={16} strokeWidth={2.5} />
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => toggleTodo(entry.id)}
+                              disabled={rewriting || closing}
+                              style={glyphStyle('task')}
+                              className={`flex items-center justify-center transition-colors duration-200 mt-0.5 ${
+                                ticked
+                                  ? 'border-neutral-900 bg-neutral-900'
+                                  : dropped
+                                    ? 'border-neutral-200'
+                                    : rewriting
+                                      ? 'border-neutral-300 cursor-default'
+                                      : 'border-neutral-300 hover:border-neutral-900 cursor-pointer'
+                              }`}
+                            >
+                              {ticked && (
+                                <motion.svg
+                                  viewBox="0 0 24 24"
+                                  className="w-3.5 h-3.5 text-white"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  initial={{ scale: 0.3, opacity: 0 }}
+                                  animate={{ scale: 1, opacity: 1 }}
+                                  transition={{ type: 'spring', stiffness: 520, damping: 18 }}
+                                >
+                                  <polyline points="20 6 9 17 4 12" />
+                                </motion.svg>
+                              )}
+                            </button>
+                          )}
                         </div>
 
                         <div className="flex-1 min-w-0 flex items-baseline gap-4 text-lg leading-relaxed pt-0.5">
                           <span className={`flex-1 min-w-0 transition-colors duration-200 ${
-                            ticked ? 'line-through decoration-neutral-300 text-neutral-400' : ''
+                            ticked || dropped ? 'line-through decoration-neutral-300 text-neutral-400' : migrated ? 'text-neutral-400' : ''
                           }`}>
                             {entry.text}
                           </span>
-                          <span className="text-[10px] text-neutral-300 font-bold tabular-nums whitespace-nowrap">
-                            {earlierDateLabel(entry.createdAt)}
-                          </span>
-                        </div>
 
-                        <button
-                          onClick={() => deleteTodo(entry.id)}
-                          className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-red-400 transition-all p-1 mt-0.5"
-                          title="Delete entry"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                          {rewriting ? (
+                            <span className="text-[10px] italic tracking-wider text-neutral-400 whitespace-nowrap">
+                              rewriting…
+                            </span>
+                          ) : (
+                            <span className="flex items-baseline gap-4 flex-shrink-0">
+                              <span
+                                className="text-[10px] text-neutral-300 font-bold tabular-nums whitespace-nowrap"
+                                title={earlierDateLabel(entry.createdAt)}
+                              >
+                                {earlierAgeLabel(entry.createdAt, todayStart)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => beginRewrite(entry)}
+                                disabled={!canRewrite}
+                                title={canRewrite ? 'Write it again, today' : 'Finish or clear what you are typing first'}
+                                className={`text-[9px] uppercase tracking-widest font-bold transition-colors ${
+                                  canRewrite ? 'text-neutral-300 hover:text-neutral-800' : 'text-neutral-200 cursor-not-allowed'
+                                }`}
+                              >
+                                rewrite
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => dropTask(entry.id)}
+                                disabled={closing}
+                                title="Not worth doing any more"
+                                className="text-[9px] uppercase tracking-widest font-bold text-neutral-300 hover:text-red-400 transition-colors"
+                              >
+                                drop
+                              </button>
+                            </span>
+                          )}
+                        </div>
                       </motion.div>
                     );
                   })}
@@ -2550,7 +2730,21 @@ export default function App() {
                           its own mark here; only a task keeps the checkbox. */}
                       <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                         <PrioritySlot on={entry.priority} muted />
-                        {entry.type === 'task' ? (
+                        {entry.resolution ? (
+                          // Migrated shows the journal's ">", dropped an empty
+                          // box. Neither is a control — the restore arrow is,
+                          // so a mark cannot be mistaken for a tick undone.
+                          <span
+                            className="flex items-center justify-center mt-0.5 text-neutral-300"
+                            style={{ width: GLYPH_SHAPE.task.width, height: GLYPH_SHAPE.task.height }}
+                          >
+                            {entry.resolution === 'migrated' ? (
+                              <ChevronRight size={16} strokeWidth={2.5} />
+                            ) : (
+                              <span style={glyphStyle('task')} className="block border-neutral-200" />
+                            )}
+                          </span>
+                        ) : entry.type === 'task' ? (
                           <button
                             onClick={() => toggleTodo(entry.id)}
                             style={glyphStyle('task')}
@@ -2579,7 +2773,11 @@ export default function App() {
                         )}
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-lg leading-relaxed pt-0.5 text-neutral-300 line-through decoration-neutral-200 truncate">
+                        {/* A migrated task was not finished here, it was carried —
+                            so it is not struck, as on paper. */}
+                        <span className={`text-lg leading-relaxed pt-0.5 text-neutral-300 truncate ${
+                          entry.resolution === 'migrated' ? '' : 'line-through decoration-neutral-200'
+                        }`}>
                           {entry.text}
                         </span>
                         {editingTimeId === entry.id ? (
@@ -2596,13 +2794,14 @@ export default function App() {
                         )}
                         <span className="mt-1 text-[9px] uppercase tracking-widest text-neutral-200 font-bold">
                           {entry.timeOfDay}
+                          {entry.resolution && <> · {entry.resolution}</>}
                         </span>
                       </div>
                       {/* An event or a note has no checkbox to un-tick, so
                           without this the only way out of the archive would be
                           the context menu — a way back that has to be guessed
                           at. Tasks do not need it; theirs is the checkbox. */}
-                      {entry.type !== 'task' && (
+                      {(entry.type !== 'task' || entry.resolution) && (
                         <button
                           onClick={() => toggleTodo(entry.id)}
                           className="opacity-0 group-hover:opacity-100 text-neutral-300 hover:text-neutral-900 transition-all p-1 mt-0.5"
