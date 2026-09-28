@@ -450,6 +450,14 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 // shape is seen changing rather than seen having changed.
 const MORPH = [0.4, 0, 0.2, 1] as const;
 
+// A typewriter strike, for the moment an entry is set down: a small mechanical
+// shudder rather than a bounce. Two strengths — the bullet at the bar, where
+// the eye is when Enter is pressed, and a fainter one on the row where the
+// entry lands. Kept to a couple of pixels; any more and it reads as an error.
+const STRIKE = { x: [0, -2, 2, -1, 1, 0], rotate: [0, -8, 6, -3, 2, 0] };
+const SHIVER = { x: [0, -1.5, 1.5, -0.75, 0.75, 0] };
+const STRIKE_TIMING = { duration: 0.34, ease: 'easeOut' } as const;
+
 // Each block arrives slightly after the one above it, so the page assembles
 // top-down instead of appearing all at once.
 //
@@ -1123,6 +1131,20 @@ export default function App() {
   // fold. The row itself is then briefly lit, so it can be found.
   const [justAdded, setJustAdded] = useState<{ id: string; section: TimeOfDay; rewrite: boolean } | null>(null);
   const [addPulse, setAddPulse] = useState(0);
+  // A shudder is exactly what a vestibular setting asks to be spared. The wash
+  // and the line at the bar still say it worked. Followed live rather than read
+  // once — motion's useReducedMotion is fixed at mount, so turning the setting
+  // on while the app is open would have changed nothing.
+  const [reduceMotion, setReduceMotion] = useState(() => {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia('(prefers-reduced-motion: reduce)'); } catch { return; }
+    const follow = () => setReduceMotion(mq.matches);
+    mq.addEventListener('change', follow);
+    return () => mq.removeEventListener('change', follow);
+  }, []);
   const justAddedTimer = useRef<number | null>(null);
   const announceAdded = (id: string, section: TimeOfDay, rewrite = false) => {
     if (justAddedTimer.current) window.clearTimeout(justAddedTimer.current);
@@ -2074,15 +2096,14 @@ export default function App() {
           <div className="flex flex-col gap-6 border-l-2 border-neutral-100 pl-6 py-2">
             <div className="flex items-center gap-3">
               <span className="w-6 flex justify-center flex-shrink-0">
-                {/* Keyed on each entry added, so the pop plays on every Enter. The
-                    bullet inside is initial={false}, so remounting it does not
-                    replay the shape morph. */}
+                {/* Keyed on each entry added, so the strike plays on every Enter.
+                    The bullet inside is initial={false}, so remounting it does
+                    not replay the shape morph. */}
                 <motion.span
                   key={addPulse}
                   className="block"
-                  initial={{ scale: addPulse ? 0.55 : 1 }}
-                  animate={{ scale: 1 }}
-                  transition={{ duration: 0.38, ease: POP }}
+                  animate={addPulse && !reduceMotion ? STRIKE : undefined}
+                  transition={STRIKE_TIMING}
                 >
                   <motion.span
                     className="block box-border border-solid"
@@ -2562,7 +2583,9 @@ export default function App() {
                         layout="position"
                         transition={{ layout: GLIDE }}
                         initial={{ opacity: 0 }}
-                        animate={{ opacity: 1, transition: { duration: 0.2 } }}
+                        animate={justAdded?.id === entry.id && !reduceMotion
+                          ? { opacity: 1, ...SHIVER, transition: { opacity: { duration: 0.2 }, x: STRIKE_TIMING } }
+                          : { opacity: 1, transition: { duration: 0.2 } }}
                         draggable={!entry.time && editingId !== entry.id}
                         onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
                           if (entry.time || editingId === entry.id) { e.preventDefault(); return; }
