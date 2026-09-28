@@ -26,7 +26,7 @@ import {
   where, 
   orderBy,
   onSnapshot, 
-  addDoc, 
+  setDoc,
   updateDoc, 
   deleteDoc,
   doc,
@@ -1118,6 +1118,23 @@ export default function App() {
   // never out of Earlier before it has actually been written again.
   const [rewritingId, setRewritingId] = useState<string | null>(null);
 
+  // Enter is answered where it was pressed: the bullet pops and the bar says
+  // where the entry went, because the section it lands in is often below the
+  // fold. The row itself is then briefly lit, so it can be found.
+  const [justAdded, setJustAdded] = useState<{ id: string; section: TimeOfDay; rewrite: boolean } | null>(null);
+  const [addPulse, setAddPulse] = useState(0);
+  const justAddedTimer = useRef<number | null>(null);
+  const announceAdded = (id: string, section: TimeOfDay, rewrite = false) => {
+    if (justAddedTimer.current) window.clearTimeout(justAddedTimer.current);
+    setJustAdded({ id, section, rewrite });
+    setAddPulse(n => n + 1);
+    justAddedTimer.current = window.setTimeout(() => setJustAdded(null), 1800);
+  };
+  const withdrawAdded = () => {
+    if (justAddedTimer.current) window.clearTimeout(justAddedTimer.current);
+    setJustAdded(null);
+  };
+
   const toggleEarlier = () => {
     const next = !earlierCollapsed;
     setEarlierCollapsed(next);
@@ -1406,7 +1423,9 @@ export default function App() {
     // the snapshot to bring the row back, which never arrives for a guest, so
     // the append happens here instead.
     if (isGuest && !user) {
-      setTodos(prev => [...prev, { id: newLocalId(), ...newTodoData }]);
+      const id = newLocalId();
+      setTodos(prev => [...prev, { id, ...newTodoData }]);
+      announceAdded(id, newTodoData.timeOfDay);
       return;
     }
 
@@ -1421,13 +1440,16 @@ export default function App() {
         // One batch, so the two writes land together or not at all. Apart,
         // a failure between them would leave the task written twice, or
         // marked migrated with nothing written in its place.
+        const created = doc(collection(db, 'todos'));
+        announceAdded(created.id, newTodoData.timeOfDay, true);
         try {
           const batch = writeBatch(db);
-          batch.set(doc(collection(db, 'todos')), newTodoData);
+          batch.set(created, newTodoData);
           batch.update(doc(db, 'todos', migratingId), { completed: true, resolution: 'migrated' });
           await batch.commit();
         } catch (error) {
           reportSaveError(error, 'Error rewriting task:');
+          withdrawAdded();
           earlierSeen.current.set(migratingId, original);
           setTodos(prev => prev.map(t => t.id === migratingId
             ? { ...t, completed: original.completed, resolution: original.resolution } : t));
@@ -1441,10 +1463,16 @@ export default function App() {
       }
     }
 
+    // The id is made here rather than returned by addDoc, which only resolves
+    // once the server acknowledges — seconds away, or never while offline.
+    const created = doc(collection(db, 'todos'));
+    announceAdded(created.id, newTodoData.timeOfDay);
     try {
-      await addDoc(collection(db, 'todos'), newTodoData);
+      await setDoc(created, newTodoData);
     } catch (error) {
       reportSaveError(error, 'Error adding todo:');
+      // It was never saved, so it should not keep saying it was.
+      withdrawAdded();
       // The box was cleared optimistically, so without this the typed text is
       // simply gone and nothing was ever saved.
       setInputText(newTodoData.text);
@@ -2046,12 +2074,23 @@ export default function App() {
           <div className="flex flex-col gap-6 border-l-2 border-neutral-100 pl-6 py-2">
             <div className="flex items-center gap-3">
               <span className="w-6 flex justify-center flex-shrink-0">
+                {/* Keyed on each entry added, so the pop plays on every Enter. The
+                    bullet inside is initial={false}, so remounting it does not
+                    replay the shape morph. */}
                 <motion.span
-                  className="block box-border border-solid"
-                  initial={false}
-                  animate={GLYPH_SHAPE[selectedType]}
-                  transition={{ duration: 0.4, ease: MORPH }}
-                />
+                  key={addPulse}
+                  className="block"
+                  initial={{ scale: addPulse ? 0.55 : 1 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.38, ease: POP }}
+                >
+                  <motion.span
+                    className="block box-border border-solid"
+                    initial={false}
+                    animate={GLYPH_SHAPE[selectedType]}
+                    transition={{ duration: 0.4, ease: MORPH }}
+                  />
+                </motion.span>
               </span>
               <input
                 type="text"
@@ -2065,6 +2104,22 @@ export default function App() {
                 placeholder="Log..."
                 className="flex-1 bg-transparent border-none py-1 text-lg focus:outline-none placeholder:text-neutral-300"
               />
+              <AnimatePresence>
+                {justAdded && (
+                  <motion.span
+                    key="added"
+                    role="status"
+                    initial={{ opacity: 0, x: 6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.28, ease: EASE }}
+                    className="flex items-center gap-1.5 flex-shrink-0 pointer-events-none text-[9px] uppercase tracking-widest font-black text-neutral-400"
+                  >
+                    <Check size={11} strokeWidth={3} />
+                    {justAdded.rewrite ? 'rewritten to' : 'added to'} {justAdded.section}
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
             
             <div className="pl-9">
@@ -2523,12 +2578,22 @@ export default function App() {
                             todo: entry
                           });
                         }}
-                        className={`group flex items-start mb-4 transition-colors ${
+                        className={`relative isolate group flex items-start mb-4 transition-colors ${
                           entry.type === 'note' 
                             ? 'border-l-4 border-neutral-200 pl-6 py-2 ml-4' 
                             : 'gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50'
                         } ${!entry.time && editingId !== entry.id ? 'cursor-grab active:cursor-grabbing' : ''}`}
                       >
+                        {/* Where the entry just added landed: lit, then let go. */}
+                        {justAdded?.id === entry.id && (
+                          <motion.span
+                            aria-hidden
+                            className="absolute inset-0 rounded-lg bg-neutral-100 pointer-events-none -z-10"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: [0, 1, 1, 0] }}
+                            transition={{ duration: 1.6, times: [0, 0.12, 0.4, 1], ease: 'easeOut' }}
+                          />
+                        )}
                         {entry.type !== 'note' && (
                           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
                             <PrioritySlot on={entry.priority} />
