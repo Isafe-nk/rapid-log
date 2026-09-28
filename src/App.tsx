@@ -2223,7 +2223,12 @@ export default function App() {
                   offered at all for a note. */}
               {/* A note is offered no clock, so the area leaves rather than
                   blinking out — and comes back the same way. */}
-              <AnimatePresence initial={false}>
+              {/* popLayout, here and at each place below where something leaves
+                  the flow. A plain exit keeps the leaver's height for the whole
+                  fade and then drops it in one frame — so everything under it
+                  jumped. popLayout takes it out of the flow as the fade starts,
+                  and the content below glides up on its usual transform. */}
+              <AnimatePresence mode="popLayout" initial={false}>
                 {selectedType !== 'note' && (
                   <motion.div
                     key="time-area"
@@ -2232,14 +2237,16 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.2, ease: EASE }}
                   >
-                <AnimatePresence mode="wait" initial={false}>
+                {/* Crossing rather than waiting: the leaver fades fast and the
+                    arriving one starts a beat later, so the two never read as
+                    overlapping text. */}
+                <AnimatePresence mode="popLayout" initial={false}>
                   {!useTime ? (
                     <motion.div
                       key="add-time"
                       initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.22, ease: EASE }}
+                      animate={{ opacity: 1, y: 0, transition: { duration: 0.22, ease: EASE, delay: 0.08 } }}
+                      exit={{ opacity: 0, transition: { duration: 0.12 } }}
                       className="pt-3"
                     >
                       <button
@@ -2254,9 +2261,8 @@ export default function App() {
                     <motion.div
                       key="clock"
                       initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.26, ease: EASE }}
+                      animate={{ opacity: 1, y: 0, transition: { duration: 0.26, ease: EASE, delay: 0.08 } }}
+                      exit={{ opacity: 0, transition: { duration: 0.12 } }}
                       className="flex items-center gap-2 flex-wrap pt-3"
                     >
                       <span className={CLOCK_LABEL}>{endChoice ? 'From' : 'At'}</span>
@@ -2366,158 +2372,159 @@ export default function App() {
             each task lives, not a second copy of it: tick or delete here, and
             navigate to its day for anything else. So no drag, no edit, no
             context menu. Absent entirely when there is nothing to show. */}
-        <AnimatePresence>
-          {earlierTodos.length > 0 && (
-            <motion.div
-              key="earlier"
-              className="relative rounded-2xl -mx-4 px-4 py-4 mb-20"
-              {...reveal(appVisible, 0.09)}
-              exit={{ opacity: 0, transition: { duration: 0.2 } }}
+        {/* No exit animation for the section or its rows, the same choice the
+            log's own rows make. An exit keeps the leaver's space through its
+            fade and then drops it in one frame, so everything below jumped;
+            popLayout, which fixes that in the composer, misplaces these on the
+            way out because of their negative margins. Removed in the same
+            render instead, they leave after their beat and everything below
+            glides up on its layout transform. */}
+        {earlierTodos.length > 0 && (
+          <motion.div
+            key="earlier"
+            className="relative rounded-2xl -mx-4 px-4 py-4 mb-20"
+            {...reveal(appVisible, 0.09)}
+          >
+            {/* The whole header folds the section. Folded, it keeps its count,
+                so hidden tasks never read as no tasks. */}
+            <motion.button
+              type="button"
+              layout="position"
+              transition={{ layout: GLIDE }}
+              onClick={toggleEarlier}
+              aria-expanded={!earlierCollapsed}
+              className={`group/earlier flex items-center gap-4 w-full text-left focus:outline-none ${earlierCollapsed ? '' : 'mb-8'}`}
             >
-              {/* The whole header folds the section. Folded, it keeps its count,
-                  so hidden tasks never read as no tasks. */}
-              <motion.button
-                type="button"
-                layout="position"
-                transition={{ layout: GLIDE }}
-                onClick={toggleEarlier}
-                aria-expanded={!earlierCollapsed}
-                className={`group/earlier flex items-center gap-4 w-full text-left focus:outline-none ${earlierCollapsed ? '' : 'mb-8'}`}
+              {/* "Tasks", because tasks are the only thing in here and the only
+                  thing that asks to be decided on. */}
+              <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors">
+                Earlier tasks
+              </h3>
+              <span className="text-[10px] font-black tabular-nums text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors -ml-2">
+                — {earlierTodos.length}
+              </span>
+              <div className="h-px flex-1 bg-neutral-100" />
+              <motion.span
+                className="text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors"
+                initial={false}
+                animate={{ rotate: earlierCollapsed ? -90 : 0 }}
+                transition={{ duration: 0.25, ease: EASE }}
               >
-                {/* "Tasks", because tasks are the only thing in here and the only
-                    thing that asks to be decided on. */}
-                <h3 className="text-[10px] uppercase tracking-[0.4em] font-black text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors">
-                  Earlier tasks
-                </h3>
-                <span className="text-[10px] font-black tabular-nums text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors -ml-2">
-                  — {earlierTodos.length}
-                </span>
-                <div className="h-px flex-1 bg-neutral-100" />
-                <motion.span
-                  className="text-neutral-300 group-hover/earlier:text-neutral-500 transition-colors"
-                  initial={false}
-                  animate={{ rotate: earlierCollapsed ? -90 : 0 }}
-                  transition={{ duration: 0.25, ease: EASE }}
-                >
-                  <ChevronDown size={12} />
-                </motion.span>
-              </motion.button>
+                <ChevronDown size={12} />
+              </motion.span>
+            </motion.button>
 
-              <div>
-                <AnimatePresence initial={false}>
-                  {!earlierCollapsed && earlierTodos.map((entry) => {
-                    // Each row is a decision: done, rewrite, or drop. While one
-                    // of them lands, the row shows which for its beat.
-                    const migrated = entry.resolution === 'migrated';
-                    const dropped = entry.resolution === 'dropped';
-                    const ticked = !entry.resolution && (settling[entry.id] === true || entry.completed);
-                    const closing = settling[entry.id] !== undefined;
-                    const rewriting = rewritingId === entry.id;
-                    // Never over something being typed, and one at a time.
-                    const canRewrite = !closing && !rewritingId && !inputText.trim();
-                    return (
-                      <motion.div
-                        key={entry.id}
-                        layout="position"
-                        transition={{ layout: GLIDE }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: rewriting ? 0.45 : 1, transition: { duration: 0.2 } }}
-                        exit={{ opacity: 0, transition: { duration: 0.2 } }}
-                        className="group flex items-start mb-4 transition-colors gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50"
-                      >
-                        <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-                          <PrioritySlot on={entry.priority} />
-                          {migrated ? (
-                            // Drawn, not typed: the bullet journal's ">".
-                            <span
-                              className="flex items-center justify-center mt-0.5 text-neutral-400"
-                              style={{ width: GLYPH_SHAPE.task.width, height: GLYPH_SHAPE.task.height }}
+            <div>
+              {!earlierCollapsed && earlierTodos.map((entry) => {
+                // Each row is a decision: done, rewrite, or drop. While one
+                // of them lands, the row shows which for its beat.
+                const migrated = entry.resolution === 'migrated';
+                const dropped = entry.resolution === 'dropped';
+                const ticked = !entry.resolution && (settling[entry.id] === true || entry.completed);
+                const closing = settling[entry.id] !== undefined;
+                const rewriting = rewritingId === entry.id;
+                // Never over something being typed, and one at a time.
+                const canRewrite = !closing && !rewritingId && !inputText.trim();
+                return (
+                  <motion.div
+                    key={entry.id}
+                    layout="position"
+                    transition={{ layout: GLIDE }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: rewriting ? 0.45 : 1, transition: { duration: 0.2 } }}
+                    className="group flex items-start mb-4 transition-colors gap-4 py-2 px-3 -mx-3 rounded-lg hover:bg-neutral-50/50"
+                  >
+                    <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+                      <PrioritySlot on={entry.priority} />
+                      {migrated ? (
+                        // Drawn, not typed: the bullet journal's ">".
+                        <span
+                          className="flex items-center justify-center mt-0.5 text-neutral-400"
+                          style={{ width: GLYPH_SHAPE.task.width, height: GLYPH_SHAPE.task.height }}
+                        >
+                          <ChevronRight size={16} strokeWidth={2.5} />
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => toggleTodo(entry.id)}
+                          disabled={rewriting || closing}
+                          style={glyphStyle('task')}
+                          className={`flex items-center justify-center transition-colors duration-200 mt-0.5 ${
+                            ticked
+                              ? 'border-neutral-900 bg-neutral-900'
+                              : dropped
+                                ? 'border-neutral-200'
+                                : rewriting
+                                  ? 'border-neutral-300 cursor-default'
+                                  : 'border-neutral-300 hover:border-neutral-900 cursor-pointer'
+                          }`}
+                        >
+                          {ticked && (
+                            <motion.svg
+                              viewBox="0 0 24 24"
+                              className="w-3.5 h-3.5 text-white"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              initial={{ scale: 0.3, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ type: 'spring', stiffness: 520, damping: 18 }}
                             >
-                              <ChevronRight size={16} strokeWidth={2.5} />
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => toggleTodo(entry.id)}
-                              disabled={rewriting || closing}
-                              style={glyphStyle('task')}
-                              className={`flex items-center justify-center transition-colors duration-200 mt-0.5 ${
-                                ticked
-                                  ? 'border-neutral-900 bg-neutral-900'
-                                  : dropped
-                                    ? 'border-neutral-200'
-                                    : rewriting
-                                      ? 'border-neutral-300 cursor-default'
-                                      : 'border-neutral-300 hover:border-neutral-900 cursor-pointer'
-                              }`}
-                            >
-                              {ticked && (
-                                <motion.svg
-                                  viewBox="0 0 24 24"
-                                  className="w-3.5 h-3.5 text-white"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                  initial={{ scale: 0.3, opacity: 0 }}
-                                  animate={{ scale: 1, opacity: 1 }}
-                                  transition={{ type: 'spring', stiffness: 520, damping: 18 }}
-                                >
-                                  <polyline points="20 6 9 17 4 12" />
-                                </motion.svg>
-                              )}
-                            </button>
+                              <polyline points="20 6 9 17 4 12" />
+                            </motion.svg>
                           )}
-                        </div>
+                        </button>
+                      )}
+                    </div>
 
-                        <div className="flex-1 min-w-0 flex items-baseline gap-4 text-lg leading-relaxed pt-0.5">
-                          <span className={`flex-1 min-w-0 transition-colors duration-200 ${
-                            ticked || dropped ? 'line-through decoration-neutral-300 text-neutral-400' : migrated ? 'text-neutral-400' : ''
-                          }`}>
-                            {entry.text}
+                    <div className="flex-1 min-w-0 flex items-baseline gap-4 text-lg leading-relaxed pt-0.5">
+                      <span className={`flex-1 min-w-0 transition-colors duration-200 ${
+                        ticked || dropped ? 'line-through decoration-neutral-300 text-neutral-400' : migrated ? 'text-neutral-400' : ''
+                      }`}>
+                        {entry.text}
+                      </span>
+
+                      {rewriting ? (
+                        <span className="text-[10px] italic tracking-wider text-neutral-400 whitespace-nowrap">
+                          rewriting…
+                        </span>
+                      ) : (
+                        <span className="flex items-baseline gap-4 flex-shrink-0">
+                          <span
+                            className="text-[10px] text-neutral-300 font-bold tabular-nums whitespace-nowrap"
+                            title={earlierDateLabel(entry.createdAt)}
+                          >
+                            {earlierAgeLabel(entry.createdAt, todayStart)}
                           </span>
-
-                          {rewriting ? (
-                            <span className="text-[10px] italic tracking-wider text-neutral-400 whitespace-nowrap">
-                              rewriting…
-                            </span>
-                          ) : (
-                            <span className="flex items-baseline gap-4 flex-shrink-0">
-                              <span
-                                className="text-[10px] text-neutral-300 font-bold tabular-nums whitespace-nowrap"
-                                title={earlierDateLabel(entry.createdAt)}
-                              >
-                                {earlierAgeLabel(entry.createdAt, todayStart)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => beginRewrite(entry)}
-                                disabled={!canRewrite}
-                                title={canRewrite ? 'Write it again, today' : 'Finish or clear what you are typing first'}
-                                className={`text-[9px] uppercase tracking-widest font-bold transition-colors ${
-                                  canRewrite ? 'text-neutral-300 hover:text-neutral-800' : 'text-neutral-200 cursor-not-allowed'
-                                }`}
-                              >
-                                rewrite
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => dropTask(entry.id)}
-                                disabled={closing}
-                                title="Not worth doing any more"
-                                className="text-[9px] uppercase tracking-widest font-bold text-neutral-300 hover:text-red-400 transition-colors"
-                              >
-                                drop
-                              </button>
-                            </span>
-                          )}
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                          <button
+                            type="button"
+                            onClick={() => beginRewrite(entry)}
+                            disabled={!canRewrite}
+                            title={canRewrite ? 'Write it again, today' : 'Finish or clear what you are typing first'}
+                            className={`text-[9px] uppercase tracking-widest font-bold transition-colors ${
+                              canRewrite ? 'text-neutral-300 hover:text-neutral-800' : 'text-neutral-200 cursor-not-allowed'
+                            }`}
+                          >
+                            rewrite
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dropTask(entry.id)}
+                            disabled={closing}
+                            title="Not worth doing any more"
+                            className="text-[9px] uppercase tracking-widest font-bold text-neutral-300 hover:text-red-400 transition-colors"
+                          >
+                            drop
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
 
         {/* Sections */}
         <motion.div className="space-y-20" {...reveal(appVisible, 0.12)}>
