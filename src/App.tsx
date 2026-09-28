@@ -457,6 +457,9 @@ const MORPH = [0.4, 0, 0.2, 1] as const;
 const STRIKE = { x: [0, -2, 2, -1, 1, 0], rotate: [0, -8, 6, -3, 2, 0] };
 const SHIVER = { x: [0, -1.5, 1.5, -0.75, 0.75, 0] };
 const STRIKE_TIMING = { duration: 0.34, ease: 'easeOut' } as const;
+// A log row arriving, and the one row that is the entry just set down.
+const ROW_IN = { opacity: 1, transition: { duration: 0.2 } };
+const ROW_IN_STRUCK = { opacity: 1, ...SHIVER, transition: { opacity: { duration: 0.2 }, x: STRIKE_TIMING } };
 
 // Each block arrives slightly after the one above it, so the page assembles
 // top-down instead of appearing all at once.
@@ -1126,25 +1129,11 @@ export default function App() {
   // never out of Earlier before it has actually been written again.
   const [rewritingId, setRewritingId] = useState<string | null>(null);
 
-  // Enter is answered where it was pressed: the bullet pops and the bar says
+  // Enter is answered where it was pressed: the bullet strikes and the bar says
   // where the entry went, because the section it lands in is often below the
   // fold. The row itself is then briefly lit, so it can be found.
   const [justAdded, setJustAdded] = useState<{ id: string; section: TimeOfDay; rewrite: boolean } | null>(null);
   const [addPulse, setAddPulse] = useState(0);
-  // A shudder is exactly what a vestibular setting asks to be spared. The wash
-  // and the line at the bar still say it worked. Followed live rather than read
-  // once — motion's useReducedMotion is fixed at mount, so turning the setting
-  // on while the app is open would have changed nothing.
-  const [reduceMotion, setReduceMotion] = useState(() => {
-    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
-  });
-  useEffect(() => {
-    let mq: MediaQueryList;
-    try { mq = window.matchMedia('(prefers-reduced-motion: reduce)'); } catch { return; }
-    const follow = () => setReduceMotion(mq.matches);
-    mq.addEventListener('change', follow);
-    return () => mq.removeEventListener('change', follow);
-  }, []);
   const justAddedTimer = useRef<number | null>(null);
   const announceAdded = (id: string, section: TimeOfDay, rewrite = false) => {
     if (justAddedTimer.current) window.clearTimeout(justAddedTimer.current);
@@ -2102,7 +2091,8 @@ export default function App() {
                 <motion.span
                   key={addPulse}
                   className="block"
-                  animate={addPulse && !reduceMotion ? STRIKE : undefined}
+                  // Reduce Motion is handled once, at the root (main.tsx).
+                  animate={addPulse ? STRIKE : undefined}
                   transition={STRIKE_TIMING}
                 >
                   <motion.span
@@ -2583,9 +2573,7 @@ export default function App() {
                         layout="position"
                         transition={{ layout: GLIDE }}
                         initial={{ opacity: 0 }}
-                        animate={justAdded?.id === entry.id && !reduceMotion
-                          ? { opacity: 1, ...SHIVER, transition: { opacity: { duration: 0.2 }, x: STRIKE_TIMING } }
-                          : { opacity: 1, transition: { duration: 0.2 } }}
+                        animate={justAdded?.id === entry.id ? ROW_IN_STRUCK : ROW_IN}
                         draggable={!entry.time && editingId !== entry.id}
                         onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
                           if (entry.time || editingId === entry.id) { e.preventDefault(); return; }
