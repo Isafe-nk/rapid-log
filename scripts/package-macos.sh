@@ -251,16 +251,16 @@ step "Tidying up"
 # the worst confusion to have while testing one.
 #
 # Naming the directory .noindex keeps it out of Spotlight's metadata index but
-# not out of Launch Services, and app search reads the latter — so it has to be
-# unregistered explicitly. The disk image is the deliverable; by this point the
-# build product has done its job.
+# not out of Launch Services, and app search reads the latter. Unregistering was
+# not enough on its own: macOS registers an app again the moment Finder shows
+# the folder it sits in, so the duplicates came back as soon as anyone looked.
+# The disk image is the deliverable and by this point the build product has done
+# its job, so it goes. Intermediates stay, so the next build is still
+# incremental — only the final bundle is re-assembled.
 LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-if [ -x "$LSREG" ]; then
-  "$LSREG" -u "$PWD/$APP" 2>/dev/null || true
-  ok "build product kept out of app search"
-else
-  ok "lsregister unavailable — skipped"
-fi
+[ -x "$LSREG" ] && "$LSREG" -u "$PWD/$APP" 2>/dev/null || true
+rm -rf "${APP:?}"
+ok "build product removed, so it cannot turn up in app search"
 
 printf '\n== Done. %s at %s\n' "$VERSION" "$OUT"
 ls -lh "$OUT" | tail -n +2 | sed 's/^/   /'

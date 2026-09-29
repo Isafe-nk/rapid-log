@@ -137,10 +137,15 @@ build_and_install() {
   # Every xcodebuild registers what it built, so without this each rebuild adds
   # another RapidLog to app search and launching the wrong one is
   # indistinguishable from the new build not working.
+  #
+  # Unregistering alone does not hold — Finder registers an app again as soon as
+  # it shows its folder — so the build product is removed once it has been
+  # copied. Intermediates stay, so rebuilds are still incremental.
   if [ -x "$LSREG" ]; then
     "$LSREG" -u "$PWD/$APP" 2>/dev/null || true
     "$LSREG" -f "$DEST" 2>/dev/null || true
   fi
+  rm -rf "${APP:?}"
 
   ok "installed $version ($build) · $(lipo -archs "$DEST/Contents/MacOS/RapidLog")"
 
